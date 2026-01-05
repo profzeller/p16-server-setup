@@ -558,6 +558,12 @@ echo "Firewall: $(ufw status | head -1)"
 EOF
 chmod +x /usr/local/bin/server-status
 
+# Service installer script
+log "Downloading GPU service installer..."
+curl -sSL https://raw.githubusercontent.com/profzeller/p16-server-setup/main/install-service.sh \
+    -o /usr/local/bin/install-service
+chmod +x /usr/local/bin/install-service
+
 # ============================================
 # SECTION 12: Final Steps
 # ============================================
@@ -571,9 +577,10 @@ echo "  ╔═══════════════════════
 echo "  ║     Lenovo P16 GPU Server (RTX 4090)      ║"
 echo "  ╠═══════════════════════════════════════════╣"
 echo "  ║  Commands:                                ║"
-echo "  ║    server-status  - Quick system status   ║"
-echo "  ║    gpu-monitor    - Live GPU monitoring   ║"
-echo "  ║    test-gpu-setup - Verify configuration  ║"
+echo "  ║    install-service - Install AI services  ║"
+echo "  ║    server-status   - Quick system status  ║"
+echo "  ║    gpu-monitor     - Live GPU monitoring  ║"
+echo "  ║    test-gpu-setup  - Verify configuration ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo ""
 EOF

@@ -118,6 +118,9 @@ You can safely:
 After setup, these commands are available:
 
 ```bash
+# Install AI services (interactive menu)
+install-service
+
 # Quick system status
 server-status
 
@@ -127,6 +130,47 @@ gpu-monitor
 # Verify setup configuration
 test-gpu-setup
 ```
+
+### Installing AI Services
+
+Run `install-service` to get an interactive menu:
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║            GPU Service Installer                          ║
+║            Lenovo P16 GPU Server                          ║
+╚═══════════════════════════════════════════════════════════╝
+
+Available Services:
+
+  1) Ollama               [Running]
+     Local LLM inference (simpler, good for dev)
+     Port: 11434
+
+  2) vLLM
+     High-throughput LLM inference (2-4x faster for batch)
+     Port: 8000
+
+  3) Chatterbox TTS
+     Text-to-speech voice generation
+     Port: 8100
+
+  4) ComfyUI
+     Image generation with SDXL
+     Port: 8188
+
+  5) Video Server
+     Wan2.2 text-to-video and image-to-video
+     Port: 8200
+
+  6) List running services
+  7) Stop all services
+  0) Exit
+
+Select an option:
+```
+
+Services are installed to `/opt/gpu-services/` and started automatically.
 
 ### Example Output: `server-status`
 
