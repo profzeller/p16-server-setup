@@ -1087,6 +1087,167 @@ SCRIPT
 # ============================================
 # AI Services Functions
 # ============================================
+
+# Configure vLLM model
+configure_vllm() {
+    local dir="$INSTALL_DIR/local-vllm-server"
+    local env_file="$dir/.env"
+
+    header "Configure vLLM Model"
+
+    if [ ! -d "$dir" ]; then
+        warn "vLLM not installed. Install it first."
+        press_enter
+        return
+    fi
+
+    # Create .env if doesn't exist
+    if [ ! -f "$env_file" ]; then
+        cp "$dir/.env.example" "$env_file" 2>/dev/null || touch "$env_file"
+    fi
+
+    # Current model
+    local current_model=$(grep "^VLLM_MODEL=" "$env_file" 2>/dev/null | cut -d= -f2)
+    current_model=${current_model:-"mistralai/Mistral-7B-Instruct-v0.3"}
+
+    echo "Current model: $current_model"
+    echo ""
+    echo -e "${YELLOW}Recommended models for 16GB VRAM:${NC}"
+    echo ""
+    echo "  1) mistralai/Mistral-7B-Instruct-v0.3 (7B, fast)"
+    echo "  2) Qwen/Qwen2.5-7B-Instruct (7B, multilingual)"
+    echo "  3) meta-llama/Llama-3.2-3B-Instruct (3B, very fast)"
+    echo "  4) microsoft/Phi-3-mini-4k-instruct (3.8B, efficient)"
+    echo ""
+    echo -e "${YELLOW}For 24GB+ VRAM:${NC}"
+    echo ""
+    echo "  5) Qwen/Qwen2.5-14B-Instruct (14B, best quality)"
+    echo "  6) meta-llama/Llama-3.1-8B-Instruct (8B)"
+    echo ""
+    echo "  7) Custom model (enter HuggingFace ID)"
+    echo "  0) Cancel"
+    echo ""
+    read -p "Select model: " model_choice
+
+    local new_model=""
+    local served_name=""
+    local max_len="8192"
+
+    case $model_choice in
+        1) new_model="mistralai/Mistral-7B-Instruct-v0.3"; served_name="mistral-7b" ;;
+        2) new_model="Qwen/Qwen2.5-7B-Instruct"; served_name="qwen2.5-7b"; max_len="32768" ;;
+        3) new_model="meta-llama/Llama-3.2-3B-Instruct"; served_name="llama-3b" ;;
+        4) new_model="microsoft/Phi-3-mini-4k-instruct"; served_name="phi3-mini"; max_len="4096" ;;
+        5) new_model="Qwen/Qwen2.5-14B-Instruct"; served_name="qwen2.5-14b"; max_len="4096" ;;
+        6) new_model="meta-llama/Llama-3.1-8B-Instruct"; served_name="llama-8b" ;;
+        7)
+            read -p "Enter HuggingFace model ID: " new_model
+            read -p "API model name (e.g., my-model): " served_name
+            read -p "Max context length [8192]: " max_len
+            max_len=${max_len:-8192}
+            ;;
+        0|"") return ;;
+        *) echo -e "${RED}Invalid option${NC}"; press_enter; return ;;
+    esac
+
+    if [ -n "$new_model" ]; then
+        log "Updating vLLM configuration..."
+
+        # Update .env file
+        cat > "$env_file" << EOF
+# vLLM Configuration
+VLLM_MODEL=$new_model
+VLLM_SERVED_NAME=$served_name
+VLLM_MAX_MODEL_LEN=$max_len
+VLLM_GPU_MEMORY_UTIL=0.90
+VLLM_DTYPE=auto
+HF_TOKEN=
+EOF
+
+        log "Configuration saved to $env_file"
+
+        if confirm "Restart vLLM now to apply changes?" "y"; then
+            cd "$dir"
+            docker compose down
+            docker compose up -d
+            log "vLLM restarting with $new_model"
+            echo ""
+            echo "Note: Model download may take a few minutes."
+            echo "Check logs with: docker logs -f vllm"
+        fi
+    fi
+
+    press_enter
+}
+
+# Configure Ollama model
+configure_ollama() {
+    local dir="$INSTALL_DIR/local-ollama-server"
+
+    header "Configure Ollama Model"
+
+    if [ ! -d "$dir" ]; then
+        warn "Ollama not installed. Install it first."
+        press_enter
+        return
+    fi
+
+    # List current models
+    echo "Installed models:"
+    docker exec ollama ollama list 2>/dev/null || echo "  (none or container not running)"
+    echo ""
+    echo -e "${YELLOW}Available actions:${NC}"
+    echo ""
+    echo "  1) Pull a new model"
+    echo "  2) Remove a model"
+    echo "  3) Show recommended models"
+    echo "  0) Cancel"
+    echo ""
+    read -p "Select option: " ollama_choice
+
+    case $ollama_choice in
+        1)
+            echo ""
+            echo -e "${YELLOW}Popular models for 16GB VRAM:${NC}"
+            echo "  mistral:7b, qwen2.5:7b, llama3.2:3b, phi3:mini, gemma2:9b"
+            echo ""
+            read -p "Model to pull (e.g., mistral:7b): " model_name
+            if [ -n "$model_name" ]; then
+                log "Pulling $model_name..."
+                docker exec ollama ollama pull "$model_name"
+            fi
+            ;;
+        2)
+            echo ""
+            read -p "Model to remove: " model_name
+            if [ -n "$model_name" ]; then
+                docker exec ollama ollama rm "$model_name"
+                log "Removed $model_name"
+            fi
+            ;;
+        3)
+            echo ""
+            echo -e "${CYAN}Recommended models for 16GB VRAM:${NC}"
+            echo ""
+            echo "  mistral:7b     - 7B, fast, great all-around"
+            echo "  qwen2.5:7b     - 7B, multilingual"
+            echo "  llama3.2:3b    - 3B, very fast"
+            echo "  phi3:mini      - 3.8B, efficient"
+            echo "  gemma2:9b      - 9B, good quality"
+            echo ""
+            echo -e "${CYAN}For 24GB+ VRAM:${NC}"
+            echo ""
+            echo "  qwen2.5:14b    - 14B, excellent quality"
+            echo "  llama3.1:8b    - 8B, good balance"
+            echo "  deepseek-r1:14b - 14B, great reasoning"
+            echo ""
+            ;;
+        0|"") return ;;
+    esac
+
+    press_enter
+}
+
 install_service() {
     require_root || return
 
@@ -1106,8 +1267,9 @@ install_service() {
         echo "Options:"
         echo "  1) Start service"
         echo "  2) Stop service"
-        echo "  3) Update (git pull)"
-        echo "  4) Reinstall"
+        echo "  3) Configure model"
+        echo "  4) Update (git pull)"
+        echo "  5) Reinstall"
         echo "  0) Cancel"
         echo ""
         read -p "Select option: " svc_choice
@@ -1124,16 +1286,26 @@ install_service() {
                 log "$name stopped"
                 ;;
             3)
+                case $name in
+                    vllm) configure_vllm ;;
+                    ollama) configure_ollama ;;
+                    *) warn "Model configuration not available for $name" ;;
+                esac
+                return
+                ;;
+            4)
                 cd "$dir"
                 git pull
                 docker compose down 2>/dev/null || true
                 docker compose up -d
                 log "$name updated"
                 ;;
-            4)
+            5)
                 rm -rf "$dir"
                 git clone "$repo"
                 cd "$dir"
+                # Copy .env.example if exists
+                [ -f .env.example ] && cp .env.example .env
                 docker compose up -d
                 log "$name reinstalled"
                 ;;
