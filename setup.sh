@@ -564,6 +564,41 @@ curl -sSL https://raw.githubusercontent.com/profzeller/p16-server-setup/main/ins
     -o /usr/local/bin/install-service
 chmod +x /usr/local/bin/install-service
 
+# Help command
+cat > /usr/local/bin/help << 'EOF'
+#!/bin/bash
+
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+echo ""
+echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}          ${YELLOW}Lenovo P16 GPU Server Commands${NC}                    ${CYAN}║${NC}"
+echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "${GREEN}Service Management:${NC}"
+echo "  install-service    Install/manage AI services (interactive menu)"
+echo ""
+echo -e "${GREEN}Monitoring:${NC}"
+echo "  server-status      Quick system status (GPU, containers, resources)"
+echo "  gpu-monitor        Live GPU monitoring (nvidia-smi watch)"
+echo ""
+echo -e "${GREEN}Diagnostics:${NC}"
+echo "  test-gpu-setup     Verify server configuration"
+echo ""
+echo -e "${GREEN}Docker:${NC}"
+echo "  docker ps          List running containers"
+echo "  docker logs <name> View container logs"
+echo ""
+echo -e "${GREEN}GPU:${NC}"
+echo "  nvidia-smi         NVIDIA GPU status"
+echo "  nvtop              Interactive GPU monitor"
+echo ""
+EOF
+chmod +x /usr/local/bin/help
+
 # ============================================
 # SECTION 12: Final Steps
 # ============================================
@@ -576,11 +611,7 @@ echo ""
 echo "  ╔═══════════════════════════════════════════╗"
 echo "  ║     Lenovo P16 GPU Server (RTX 4090)      ║"
 echo "  ╠═══════════════════════════════════════════╣"
-echo "  ║  Commands:                                ║"
-echo "  ║    install-service - Install AI services  ║"
-echo "  ║    server-status   - Quick system status  ║"
-echo "  ║    gpu-monitor     - Live GPU monitoring  ║"
-echo "  ║    test-gpu-setup  - Verify configuration ║"
+echo "  ║  Type 'help' for available commands       ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo ""
 EOF
