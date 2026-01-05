@@ -16,17 +16,6 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Ports to open (all possible AI server ports)
-ALLOWED_PORTS=(
-    22      # SSH
-    8000    # vLLM
-    11434   # Ollama
-    8100    # Chatterbox TTS
-    8188    # ComfyUI Web UI
-    8189    # ComfyUI API
-    8200    # Video Server
-)
-
 log() {
     echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $1"
 }
@@ -97,6 +86,64 @@ echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "Setup cancelled. Please run the script again."
     exit 1
+fi
+
+# ============================================
+# Collect Network Configuration
+# ============================================
+echo ""
+echo -e "${YELLOW}Network Configuration${NC}"
+echo ""
+echo "  1) DHCP (automatic IP from router)"
+echo "  2) Static IP (manual configuration)"
+echo ""
+read -p "Select network mode [1]: " NET_MODE
+NET_MODE=${NET_MODE:-1}
+
+USE_STATIC=false
+if [[ "$NET_MODE" == "2" ]]; then
+    USE_STATIC=true
+    echo ""
+
+    # Detect current interface
+    DEFAULT_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+    read -p "Network interface [$DEFAULT_IFACE]: " NET_IFACE
+    NET_IFACE=${NET_IFACE:-$DEFAULT_IFACE}
+
+    read -p "Static IP address (e.g., 192.168.1.100): " STATIC_IP
+    while [[ ! "$STATIC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; do
+        echo -e "${RED}Invalid IP format${NC}"
+        read -p "Static IP address: " STATIC_IP
+    done
+
+    read -p "Subnet mask in CIDR (e.g., 24 for 255.255.255.0) [24]: " SUBNET_CIDR
+    SUBNET_CIDR=${SUBNET_CIDR:-24}
+
+    read -p "Gateway (e.g., 192.168.1.1): " GATEWAY
+    while [[ ! "$GATEWAY" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; do
+        echo -e "${RED}Invalid IP format${NC}"
+        read -p "Gateway: " GATEWAY
+    done
+
+    read -p "DNS server 1 [8.8.8.8]: " DNS1
+    DNS1=${DNS1:-8.8.8.8}
+
+    read -p "DNS server 2 [8.8.4.4]: " DNS2
+    DNS2=${DNS2:-8.8.4.4}
+
+    echo ""
+    echo -e "${BLUE}Static IP Configuration:${NC}"
+    echo "  Interface: $NET_IFACE"
+    echo "  IP: $STATIC_IP/$SUBNET_CIDR"
+    echo "  Gateway: $GATEWAY"
+    echo "  DNS: $DNS1, $DNS2"
+    echo ""
+    read -p "Is this correct? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Setup cancelled. Please run the script again."
+        exit 1
+    fi
 fi
 
 echo ""
@@ -353,14 +400,15 @@ log "Setting default policies (deny all incoming)..."
 ufw default deny incoming
 ufw default allow outgoing
 
-log "Configuring allowed connections..."
+log "Configuring SSH access..."
 
+# Only open SSH by default - service ports are opened by install-service
 for ip in "${ALLOWED_IPS[@]}"; do
-    for port in "${ALLOWED_PORTS[@]}"; do
-        log "  Allowing port $port from $ip..."
-        ufw allow from $ip to any port $port proto tcp
-    done
+    log "  Allowing SSH from $ip..."
+    ufw allow from $ip to any port 22 proto tcp
 done
+
+log "Note: Additional ports will be opened when you install services via 'install-service'"
 
 log "Enabling UFW..."
 echo "y" | ufw enable
@@ -368,10 +416,56 @@ echo "y" | ufw enable
 log "UFW status:"
 ufw status verbose
 
+# Save allowed IPs for install-service to use later
+mkdir -p /etc/gpu-server
+echo "# Allowed IPs for firewall rules" > /etc/gpu-server/allowed-ips.conf
+for ip in "${ALLOWED_IPS[@]}"; do
+    echo "$ip" >> /etc/gpu-server/allowed-ips.conf
+done
+
 # ============================================
-# SECTION 9: Performance Tuning
+# SECTION 9: Network Configuration (Static IP)
 # ============================================
-header "9. Performance Tuning"
+if [ "$USE_STATIC" = true ]; then
+    header "9. Static IP Configuration"
+
+    log "Configuring static IP via netplan..."
+
+    # Backup existing netplan config
+    cp /etc/netplan/*.yaml /etc/netplan/backup.yaml 2>/dev/null || true
+
+    # Create new netplan config
+    cat > /etc/netplan/00-static-config.yaml << EOF
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    $NET_IFACE:
+      dhcp4: no
+      addresses:
+        - $STATIC_IP/$SUBNET_CIDR
+      routes:
+        - to: default
+          via: $GATEWAY
+      nameservers:
+        addresses:
+          - $DNS1
+          - $DNS2
+EOF
+
+    chmod 600 /etc/netplan/00-static-config.yaml
+
+    log "Static IP configured: $STATIC_IP/$SUBNET_CIDR"
+    log "Note: New IP will take effect after reboot"
+else
+    header "9. Network Configuration"
+    log "Using DHCP (no changes needed)"
+fi
+
+# ============================================
+# SECTION 10: Performance Tuning
+# ============================================
+header "10. Performance Tuning"
 
 log "Configuring GPU persistence mode..."
 cat > /etc/systemd/system/nvidia-persistenced.service << 'EOF'
@@ -417,9 +511,9 @@ EOF
 sysctl -p /etc/sysctl.d/99-gpu-server.conf
 
 # ============================================
-# SECTION 10: Create Test Script
+# SECTION 11: Create Test Script
 # ============================================
-header "10. Creating Test Script"
+header "11. Creating Test Script"
 
 cat > /usr/local/bin/test-gpu-setup << 'EOF'
 #!/bin/bash
@@ -504,10 +598,13 @@ fi
 
 # Test 9: Suspend Disabled
 echo "9. Suspend/Hibernate..."
-if systemctl is-masked suspend.target &>/dev/null; then
+SUSPEND_STATUS=$(systemctl is-enabled suspend.target 2>/dev/null || echo "unknown")
+if [[ "$SUSPEND_STATUS" == "masked" ]]; then
+    pass "Suspend is disabled (masked)"
+elif [[ "$SUSPEND_STATUS" == "disabled" ]]; then
     pass "Suspend is disabled"
 else
-    fail "Suspend may still be enabled"
+    fail "Suspend may still be enabled ($SUSPEND_STATUS)"
 fi
 
 echo ""
@@ -527,9 +624,9 @@ EOF
 chmod +x /usr/local/bin/test-gpu-setup
 
 # ============================================
-# SECTION 11: Create Management Scripts
+# SECTION 12: Create Management Scripts
 # ============================================
-header "11. Creating Management Scripts"
+header "12. Creating Management Scripts"
 
 # GPU monitoring script
 cat > /usr/local/bin/gpu-monitor << 'EOF'
@@ -600,9 +697,9 @@ EOF
 chmod +x /usr/local/bin/server-commands
 
 # ============================================
-# SECTION 12: Final Steps
+# SECTION 13: Final Steps
 # ============================================
-header "12. Final Configuration"
+header "13. Final Configuration"
 
 log "Creating MOTD banner..."
 cat > /etc/update-motd.d/99-gpu-server << 'EOF'
@@ -638,17 +735,23 @@ echo "  ✓ Suspend/hibernate disabled"
 echo "  ✓ NVIDIA drivers installed (driver 550)"
 echo "  ✓ NVIDIA Container Toolkit installed"
 echo "  ✓ Docker installed with GPU support"
-echo "  ✓ UFW firewall configured (restricted access)"
+echo "  ✓ UFW firewall configured (SSH only)"
 echo "  ✓ Performance tuning applied"
+if [ "$USE_STATIC" = true ]; then
+    echo "  ✓ Static IP configured: $STATIC_IP/$SUBNET_CIDR"
+fi
 echo ""
-echo "Firewall allows connections only from:"
+echo "Firewall allows SSH from:"
 for ip in "${ALLOWED_IPS[@]}"; do
     echo "  - $ip"
 done
 echo ""
-echo "Open ports: ${ALLOWED_PORTS[*]}"
+echo "To install AI services and open their ports, run: install-service"
 echo ""
 echo -e "${YELLOW}IMPORTANT: A reboot is required to complete the setup.${NC}"
+if [ "$USE_STATIC" = true ]; then
+    echo -e "${YELLOW}After reboot, connect via: ssh $(whoami)@$STATIC_IP${NC}"
+fi
 echo ""
 echo "After reboot, run: test-gpu-setup"
 echo ""

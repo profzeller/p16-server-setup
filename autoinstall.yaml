@@ -1,0 +1,85 @@
+#cloud-config
+autoinstall:
+  version: 1
+
+  # Use entire disk, no LVM
+  storage:
+    layout:
+      name: direct
+
+  # Locale and keyboard
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+
+  # Network: DHCP during install (setup script handles static later)
+  network:
+    version: 2
+    ethernets:
+      id0:
+        match:
+          driver: "*"
+        dhcp4: true
+
+  # Identity - CHANGE THESE for your environment
+  identity:
+    hostname: gpu-server
+    username: admin
+    # Password: "changeme" - generate with: mkpasswd -m sha-512
+    password: "$6$rounds=4096$randomsalt$hashedpasswordhere"
+
+  # SSH - allow password auth initially (setup script can harden later)
+  ssh:
+    install-server: true
+    allow-pw: true
+
+  # Minimal packages + essentials
+  packages:
+    - nano
+    - vim
+    - curl
+    - wget
+    - git
+    - htop
+    - net-tools
+    - openssh-server
+    - ca-certificates
+    - gnupg
+    - lsb-release
+    - software-properties-common
+
+  # Late commands run in the installed system (chroot)
+  late-commands:
+    # Download p16 setup script
+    - curtin in-target -- curl -sSL https://raw.githubusercontent.com/profzeller/p16-server-setup/main/setup.sh -o /opt/p16-setup.sh
+    - curtin in-target -- chmod +x /opt/p16-setup.sh
+
+    # Create first-boot service to run setup
+    - |
+      cat << 'FIRSTBOOT' > /target/etc/systemd/system/p16-first-boot.service
+      [Unit]
+      Description=P16 GPU Server First Boot Setup
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathExists=/opt/p16-setup.sh
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c '/opt/p16-setup.sh && rm /opt/p16-setup.sh && systemctl disable p16-first-boot.service'
+      StandardInput=tty
+      StandardOutput=tty
+      TTYPath=/dev/tty1
+      TTYReset=yes
+      TTYVHangup=yes
+
+      [Install]
+      WantedBy=multi-user.target
+      FIRSTBOOT
+    - curtin in-target -- systemctl enable p16-first-boot.service
+
+  # User interaction settings
+  interactive-sections: []
+
+  # Don't ask for confirmation
+  refresh-installer:
+    update: false

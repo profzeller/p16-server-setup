@@ -129,6 +129,37 @@ install_service() {
 
     echo ""
     echo -e "${GREEN}✓ $name installed and started!${NC}"
+    echo ""
+
+    # Prompt for firewall configuration
+    echo -e "${YELLOW}Firewall Configuration${NC}"
+    echo "This service runs on port $port"
+    echo ""
+    read -p "Open port $port in firewall? (y/n) [y]: " OPEN_PORT
+    OPEN_PORT=${OPEN_PORT:-y}
+
+    if [[ "$OPEN_PORT" =~ ^[Yy]$ ]]; then
+        if [ -f /etc/gpu-server/allowed-ips.conf ]; then
+            echo -e "${GREEN}Opening port $port for allowed IPs...${NC}"
+            while IFS= read -r ip; do
+                # Skip comments and empty lines
+                [[ "$ip" =~ ^#.*$ ]] && continue
+                [[ -z "$ip" ]] && continue
+                echo "  Adding rule for $ip..."
+                ufw allow from $ip to any port $port proto tcp 2>/dev/null
+            done < /etc/gpu-server/allowed-ips.conf
+            echo -e "${GREEN}✓ Firewall updated${NC}"
+        else
+            echo -e "${YELLOW}Warning: /etc/gpu-server/allowed-ips.conf not found${NC}"
+            echo "Run the setup script first to configure allowed IPs"
+        fi
+    else
+        echo -e "${YELLOW}Skipping firewall configuration${NC}"
+        echo "You can manually open the port later with:"
+        echo "  sudo ufw allow from <IP> to any port $port proto tcp"
+    fi
+
+    echo ""
     echo -e "  Access at: ${CYAN}http://$(hostname -I | awk '{print $1}'):$port${NC}"
     echo ""
 
