@@ -564,8 +564,8 @@ curl -sSL https://raw.githubusercontent.com/profzeller/p16-server-setup/main/ins
     -o /usr/local/bin/install-service
 chmod +x /usr/local/bin/install-service
 
-# Help command
-cat > /usr/local/bin/help << 'EOF'
+# Help command (server-commands to avoid conflict with bash built-in 'help')
+cat > /usr/local/bin/server-commands << 'EOF'
 #!/bin/bash
 
 CYAN='\033[0;36m'
@@ -597,7 +597,7 @@ echo "  nvidia-smi         NVIDIA GPU status"
 echo "  nvtop              Interactive GPU monitor"
 echo ""
 EOF
-chmod +x /usr/local/bin/help
+chmod +x /usr/local/bin/server-commands
 
 # ============================================
 # SECTION 12: Final Steps
@@ -611,7 +611,7 @@ echo ""
 echo "  ╔═══════════════════════════════════════════╗"
 echo "  ║     Lenovo P16 GPU Server (RTX 4090)      ║"
 echo "  ╠═══════════════════════════════════════════╣"
-echo "  ║  Type 'help' for available commands       ║"
+echo "  ║  Type 'server-commands' for help          ║"
 echo "  ╚═══════════════════════════════════════════╝"
 echo ""
 EOF
