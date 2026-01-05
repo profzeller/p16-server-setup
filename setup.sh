@@ -45,8 +45,57 @@ fi
 header "Lenovo P16 GPU Server Setup"
 
 # ============================================
+# Collect System Identity
+# ============================================
+echo -e "${YELLOW}System Identity Configuration${NC}"
+echo ""
+
+# Hostname
+CURRENT_HOSTNAME=$(hostname)
+read -p "Hostname [$CURRENT_HOSTNAME]: " NEW_HOSTNAME
+NEW_HOSTNAME=${NEW_HOSTNAME:-$CURRENT_HOSTNAME}
+
+# Username
+echo ""
+echo "Create or update a user account for this server."
+CURRENT_USER=${SUDO_USER:-$(whoami)}
+read -p "Username [$CURRENT_USER]: " NEW_USERNAME
+NEW_USERNAME=${NEW_USERNAME:-$CURRENT_USER}
+
+# Password
+echo ""
+while true; do
+    read -s -p "Password for $NEW_USERNAME: " NEW_PASSWORD
+    echo
+    if [[ -z "$NEW_PASSWORD" ]]; then
+        echo -e "${RED}Password cannot be empty${NC}"
+        continue
+    fi
+    read -s -p "Confirm password: " NEW_PASSWORD2
+    echo
+    if [[ "$NEW_PASSWORD" != "$NEW_PASSWORD2" ]]; then
+        echo -e "${RED}Passwords don't match. Try again.${NC}"
+        continue
+    fi
+    break
+done
+
+echo ""
+echo -e "${BLUE}System Identity:${NC}"
+echo "  Hostname: $NEW_HOSTNAME"
+echo "  Username: $NEW_USERNAME"
+echo ""
+read -p "Is this correct? (y/n) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Setup cancelled. Please run the script again."
+    exit 1
+fi
+
+# ============================================
 # Collect Firewall Configuration
 # ============================================
+echo ""
 echo -e "${YELLOW}Firewall Configuration${NC}"
 echo ""
 echo "Enter the IP addresses or networks that should be allowed to connect."
@@ -150,9 +199,43 @@ echo ""
 log "Starting configuration for Ubuntu Server 24.04..."
 
 # ============================================
-# SECTION 1: System Updates
+# SECTION 1: System Identity
 # ============================================
-header "1. System Updates"
+header "1. System Identity"
+
+# Set hostname
+if [[ "$NEW_HOSTNAME" != "$CURRENT_HOSTNAME" ]]; then
+    log "Setting hostname to $NEW_HOSTNAME..."
+    hostnamectl set-hostname "$NEW_HOSTNAME"
+    # Update /etc/hosts
+    sed -i "s/$CURRENT_HOSTNAME/$NEW_HOSTNAME/g" /etc/hosts
+    echo "$NEW_HOSTNAME" > /etc/hostname
+else
+    log "Hostname unchanged: $CURRENT_HOSTNAME"
+fi
+
+# Create or update user
+if id "$NEW_USERNAME" &>/dev/null; then
+    log "Updating password for existing user $NEW_USERNAME..."
+    echo "$NEW_USERNAME:$NEW_PASSWORD" | chpasswd
+else
+    log "Creating new user $NEW_USERNAME..."
+    useradd -m -s /bin/bash -G sudo "$NEW_USERNAME"
+    echo "$NEW_USERNAME:$NEW_PASSWORD" | chpasswd
+fi
+
+# Ensure user is in sudo group
+usermod -aG sudo "$NEW_USERNAME"
+
+# Clear password from memory
+unset NEW_PASSWORD NEW_PASSWORD2
+
+log "System identity configured"
+
+# ============================================
+# SECTION 2: System Updates
+# ============================================
+header "2. System Updates"
 
 log "Updating package lists..."
 apt-get update
@@ -180,7 +263,7 @@ apt-get install -y \
 # ============================================
 # SECTION 2: OpenSSH Server
 # ============================================
-header "2. OpenSSH Server Configuration"
+header "3. OpenSSH Server Configuration"
 
 log "Installing OpenSSH server..."
 apt-get install -y openssh-server
@@ -212,7 +295,7 @@ systemctl restart ssh
 # ============================================
 # SECTION 3: Lid Close & Power Management
 # ============================================
-header "3. Lid Close & Power Management"
+header "4. Lid Close & Power Management"
 
 log "Configuring lid close behavior (ignore lid close)..."
 # Create directory first, then configure logind to ignore lid close
@@ -233,9 +316,9 @@ log "Restarting logind..."
 systemctl restart systemd-logind
 
 # ============================================
-# SECTION 4: Display / OLED Burn-in Prevention
+# SECTION 5: Display / OLED Burn-in Prevention
 # ============================================
-header "4. Display & OLED Burn-in Prevention"
+header "5. Display & OLED Burn-in Prevention"
 
 log "Installing console font packages..."
 apt-get install -y console-setup kbd
@@ -315,9 +398,9 @@ log "Ensuring text-mode boot..."
 systemctl set-default multi-user.target 2>/dev/null || true
 
 # ============================================
-# SECTION 5: NVIDIA Drivers
+# SECTION 6: NVIDIA Drivers
 # ============================================
-header "5. NVIDIA Driver Installation"
+header "6. NVIDIA Driver Installation"
 
 log "Adding NVIDIA driver repository..."
 # Add NVIDIA PPA for latest drivers
@@ -332,9 +415,9 @@ log "Installing nvidia-smi and related tools..."
 apt-get install -y nvidia-settings 2>/dev/null || true
 
 # ============================================
-# SECTION 6: NVIDIA Container Toolkit
+# SECTION 7: NVIDIA Container Toolkit
 # ============================================
-header "6. NVIDIA Container Toolkit"
+header "7. NVIDIA Container Toolkit"
 
 log "Adding NVIDIA Container Toolkit repository..."
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
@@ -350,9 +433,9 @@ log "Installing NVIDIA Container Toolkit..."
 apt-get install -y nvidia-container-toolkit
 
 # ============================================
-# SECTION 7: Docker Installation
+# SECTION 8: Docker Installation
 # ============================================
-header "7. Docker Installation"
+header "8. Docker Installation"
 
 log "Removing old Docker versions..."
 apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
@@ -386,9 +469,9 @@ if [ -n "$SUDO_USER" ]; then
 fi
 
 # ============================================
-# SECTION 8: UFW Firewall Configuration
+# SECTION 9: UFW Firewall Configuration
 # ============================================
-header "8. Firewall Configuration"
+header "9. Firewall Configuration"
 
 log "Installing UFW..."
 apt-get install -y ufw
@@ -424,10 +507,10 @@ for ip in "${ALLOWED_IPS[@]}"; do
 done
 
 # ============================================
-# SECTION 9: Network Configuration (Static IP)
+# SECTION 10: Network Configuration (Static IP)
 # ============================================
 if [ "$USE_STATIC" = true ]; then
-    header "9. Static IP Configuration"
+    header "10. Static IP Configuration"
 
     log "Configuring static IP via netplan..."
 
@@ -458,14 +541,14 @@ EOF
     log "Static IP configured: $STATIC_IP/$SUBNET_CIDR"
     log "Note: New IP will take effect after reboot"
 else
-    header "9. Network Configuration"
+    header "10. Network Configuration"
     log "Using DHCP (no changes needed)"
 fi
 
 # ============================================
-# SECTION 10: Performance Tuning
+# SECTION 11: Performance Tuning
 # ============================================
-header "10. Performance Tuning"
+header "11. Performance Tuning"
 
 log "Configuring GPU persistence mode..."
 cat > /etc/systemd/system/nvidia-persistenced.service << 'EOF'
@@ -511,9 +594,9 @@ EOF
 sysctl -p /etc/sysctl.d/99-gpu-server.conf
 
 # ============================================
-# SECTION 11: Create Test Script
+# SECTION 12: Create Test Script
 # ============================================
-header "11. Creating Test Script"
+header "12. Creating Test Script"
 
 cat > /usr/local/bin/test-gpu-setup << 'EOF'
 #!/bin/bash
@@ -624,9 +707,9 @@ EOF
 chmod +x /usr/local/bin/test-gpu-setup
 
 # ============================================
-# SECTION 12: Create Management Scripts
+# SECTION 13: Create Management Scripts
 # ============================================
-header "12. Creating Management Scripts"
+header "13. Creating Management Scripts"
 
 # GPU monitoring script
 cat > /usr/local/bin/gpu-monitor << 'EOF'
@@ -697,9 +780,9 @@ EOF
 chmod +x /usr/local/bin/server-commands
 
 # ============================================
-# SECTION 13: Final Steps
+# SECTION 14: Final Steps
 # ============================================
-header "13. Final Configuration"
+header "14. Final Configuration"
 
 log "Creating MOTD banner..."
 cat > /etc/update-motd.d/99-gpu-server << 'EOF'
