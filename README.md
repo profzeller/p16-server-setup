@@ -6,6 +6,7 @@ Perfect for creating a rack of AI inference servers for local development.
 
 ## What This Script Does
 
+- **System Identity** - Prompts for hostname/username/password (reuse one ISO for many machines)
 - **NVIDIA Drivers** - Installs driver 550 for RTX 4090 support
 - **NVIDIA Container Toolkit** - Enables Docker GPU passthrough
 - **Docker & Docker Compose** - Container runtime with GPU support
@@ -72,9 +73,16 @@ Or use [Ventoy](https://www.ventoy.net/) / [Rufus](https://rufus.ie/) to create 
 
 #### 4. First Boot Configuration
 
-On first boot, the setup script runs automatically and prompts for:
+On first boot, the setup script runs automatically and prompts for system identity, firewall, and network configuration. This allows you to **reuse a single ISO** for multiple machines.
 
 ```
+System Identity Configuration
+
+Hostname [gpu-server]: gpu-server-01
+Username [admin]: admin
+Password for admin: ********
+Confirm password: ********
+
 Firewall Configuration
 Enter IP or network (or press Enter when done): 192.168.1.0/24
 Added: 192.168.1.0/24
@@ -130,6 +138,45 @@ The script will prompt you to reboot. After reboot, verify the setup:
 
 ```bash
 test-gpu-setup
+```
+
+## System Identity
+
+The setup script prompts for system identity on first boot, allowing you to customize each machine from a single generic ISO.
+
+### Identity Prompts
+
+```
+System Identity Configuration
+
+Hostname [gpu-server]: gpu-server-01
+
+Create or update a user account for this server.
+Username [admin]: admin
+
+Password for admin: ********
+Confirm password: ********
+```
+
+### What Gets Configured
+
+- **Hostname**: Sets via `hostnamectl` and updates `/etc/hosts`
+- **Username**: Creates new user or updates existing user's password
+- **Password**: Required, with confirmation (cleared from memory after use)
+- **Sudo access**: User is added to sudo group automatically
+
+### Changing Identity Later
+
+```bash
+# Change hostname
+sudo hostnamectl set-hostname new-hostname
+
+# Change password
+passwd
+
+# Add new user
+sudo adduser newuser
+sudo usermod -aG sudo newuser
 ```
 
 ## Firewall Configuration
