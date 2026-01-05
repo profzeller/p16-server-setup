@@ -16,6 +16,7 @@ Perfect for creating a rack of AI inference servers for local development.
 - **Large Console Font** - Terminus 32x16 for maximum visibility
 - **Suspend/Hibernate Disabled** - Keeps server running 24/7
 - **Performance Tuning** - GPU persistence, swap, kernel optimizations
+- **Static IP Support** - Optional static IP configuration during setup
 
 ## Requirements
 
@@ -24,9 +25,82 @@ Perfect for creating a rack of AI inference servers for local development.
 - Internet connection
 - Root/sudo access
 
-## Quick Start
+## Installation Options
 
-### 1. Install Ubuntu Server 24.04
+### Option A: Autoinstall ISO (Recommended for Multiple Machines)
+
+Create a custom ISO that automatically installs Ubuntu and runs the setup script on first boot. Perfect for deploying multiple servers.
+
+#### 1. Build the Custom ISO
+
+On any Linux machine with the required tools:
+
+```bash
+# Install dependencies
+sudo apt install xorriso p7zip-full whois
+
+# Download and run the ISO builder
+curl -sSL https://raw.githubusercontent.com/profzeller/p16-server-setup/main/create-iso.sh -o create-iso.sh
+chmod +x create-iso.sh
+./create-iso.sh
+```
+
+The script will prompt for:
+- **Hostname** (e.g., `gpu-server-01`)
+- **Username** (e.g., `admin`)
+- **Password**
+
+#### 2. Write to USB
+
+```bash
+# Find your USB device
+lsblk
+
+# Write ISO (replace sdX with your USB device)
+sudo dd if=ubuntu-24.04-p16-autoinstall.iso of=/dev/sdX bs=4M status=progress
+```
+
+Or use [Ventoy](https://www.ventoy.net/) / [Rufus](https://rufus.ie/) to create a bootable USB.
+
+#### 3. Boot and Install
+
+1. Insert USB into P16 laptop
+2. Boot from USB (F12 for boot menu on Lenovo)
+3. Select "P16 GPU Server - Autoinstall"
+4. Installation runs automatically (~10-15 minutes)
+5. System reboots and runs setup script on first boot
+
+#### 4. First Boot Configuration
+
+On first boot, the setup script runs automatically and prompts for:
+
+```
+Firewall Configuration
+Enter IP or network (or press Enter when done): 192.168.1.0/24
+Added: 192.168.1.0/24
+Enter IP or network (or press Enter when done): [Enter]
+
+Network Configuration
+  1) DHCP (automatic IP from router)
+  2) Static IP (manual configuration)
+Select network mode [1]: 2
+
+Static IP address: 192.168.1.100
+Subnet mask in CIDR [24]: 24
+Gateway: 192.168.1.1
+DNS server 1 [8.8.8.8]:
+DNS server 2 [8.8.4.4]:
+```
+
+After setup completes, the system reboots and is ready to use.
+
+---
+
+### Option B: Manual Installation
+
+For single machines or when you already have Ubuntu installed.
+
+#### 1. Install Ubuntu Server 24.04
 
 Download Ubuntu Server 24.04 LTS from [ubuntu.com](https://ubuntu.com/download/server) and perform a minimal installation.
 
@@ -34,23 +108,23 @@ During installation:
 - Choose "Ubuntu Server (minimized)"
 - Set your hostname (e.g., `gpu-server-01`)
 - Create your user account
-- Enable OpenSSH server (optional - script will install it)
+- Enable OpenSSH server
 
-### 2. Run the Setup Script
+#### 2. Run the Setup Script
 
 After first boot, run:
 
 ```bash
-# Option 1: Direct download and run
+# Direct download and run
 curl -sSL https://raw.githubusercontent.com/profzeller/p16-server-setup/main/setup.sh | sudo bash
 
-# Option 2: Clone and run
+# Or clone and run
 git clone https://github.com/profzeller/p16-server-setup.git
 cd p16-server-setup
 sudo bash setup.sh
 ```
 
-### 3. Reboot
+#### 3. Reboot
 
 The script will prompt you to reboot. After reboot, verify the setup:
 
@@ -60,9 +134,18 @@ test-gpu-setup
 
 ## Firewall Configuration
 
-The script will prompt you to enter the IP addresses or networks that should be allowed to connect. You can enter multiple IPs/CIDRs:
+The setup script prompts for allowed IP addresses/networks. Only **SSH (port 22)** is opened by default.
+
+**Service ports are opened individually** when you install services via `install-service`. This keeps your firewall secure by only opening ports you actually need.
+
+### Firewall Prompts During Setup
 
 ```
+Firewall Configuration
+
+Enter the IP addresses or networks that should be allowed to connect.
+Examples: 192.168.1.0/24, 10.0.0.5, 203.0.113.0/24
+
 Enter IP or network (or press Enter when done): 192.168.1.0/24
 Added: 192.168.1.0/24
 Enter IP or network (or press Enter when done): 10.0.0.5
@@ -70,13 +153,30 @@ Added: 10.0.0.5
 Enter IP or network (or press Enter when done): [Enter]
 ```
 
-**Allowed Ports:**
+### Firewall Prompts When Installing Services
+
+When you run `install-service` and select a service:
+
+```
+✓ vLLM installed and started!
+
+Firewall Configuration
+This service runs on port 8000
+
+Open port 8000 in firewall? (y/n) [y]: y
+Opening port 8000 for allowed IPs...
+  Adding rule for 192.168.1.0/24...
+  Adding rule for 10.0.0.5...
+✓ Firewall updated
+```
+
+### Available Service Ports
 
 | Port | Service |
 |------|---------|
-| 22 | SSH |
-| 8000 | vLLM (high-throughput LLM) |
-| 11434 | Ollama (LLM) |
+| 22 | SSH (opened by default) |
+| 8000 | vLLM |
+| 11434 | Ollama |
 | 8100 | Chatterbox TTS |
 | 8188 | ComfyUI Web UI |
 | 8189 | ComfyUI API |
@@ -84,20 +184,47 @@ Enter IP or network (or press Enter when done): [Enter]
 
 ### Modifying Firewall Rules
 
-To add additional IPs:
-
 ```bash
-# Add another IP
-sudo ufw allow from 1.2.3.4 to any port 22 proto tcp
-
-# Add another subnet
-sudo ufw allow from 10.0.0.0/8 to any port 22 proto tcp
-
 # View current rules
 sudo ufw status numbered
 
+# Add another IP for a port
+sudo ufw allow from 1.2.3.4 to any port 8000 proto tcp
+
 # Delete a rule
 sudo ufw delete [rule_number]
+```
+
+## Network Configuration
+
+The setup script prompts for DHCP or Static IP:
+
+```
+Network Configuration
+
+  1) DHCP (automatic IP from router)
+  2) Static IP (manual configuration)
+
+Select network mode [1]:
+```
+
+If you choose Static IP, you'll be prompted for:
+- Network interface (auto-detected)
+- Static IP address
+- Subnet mask (CIDR notation)
+- Gateway
+- DNS servers
+
+The static IP is configured via netplan and takes effect after reboot.
+
+### Changing Network Settings Later
+
+```bash
+# Edit netplan configuration
+sudo nano /etc/netplan/00-static-config.yaml
+
+# Apply changes
+sudo netplan apply
 ```
 
 ## Lid Close & Stacking
@@ -118,6 +245,9 @@ You can safely:
 After setup, these commands are available:
 
 ```bash
+# Show all available commands
+server-commands
+
 # Install AI services (interactive menu)
 install-service
 
@@ -170,7 +300,7 @@ Available Services:
 Select an option:
 ```
 
-Services are installed to `/opt/gpu-services/` and started automatically.
+Services are installed to `/opt/gpu-services/` and started automatically. Firewall ports are opened per-service when you install them.
 
 ### Example Output: `server-status`
 
@@ -190,81 +320,6 @@ Disk: 45G used / 500G total (10%)
 === Network ===
 IP: 192.168.1.100
 Firewall: Status: active
-```
-
-## Deploying AI Services
-
-After setup, deploy any of these services:
-
-### Text Generation (vLLM) - Recommended for batch content
-```bash
-git clone https://github.com/profzeller/local-vllm-server.git
-cd local-vllm-server
-docker compose up -d  # Uses Qwen 2.5 14B by default
-```
-
-### Text Generation (Ollama) - Simpler, good for dev
-```bash
-git clone https://github.com/profzeller/local-ollama-server.git
-cd local-ollama-server
-docker compose up -d
-docker exec ollama ollama pull qwen2.5:14b
-```
-
-### Text-to-Speech (Chatterbox)
-```bash
-git clone https://github.com/profzeller/local-chatterbox-server.git
-cd local-chatterbox-server
-docker compose up -d
-```
-
-### Image Generation (ComfyUI)
-```bash
-git clone https://github.com/profzeller/local-comfyui-server.git
-cd local-comfyui-server
-mkdir -p models/checkpoints output input custom_nodes
-# Download SDXL to models/checkpoints/
-docker compose up -d
-```
-
-### Video Generation (Wan2.2)
-```bash
-git clone https://github.com/profzeller/local-video-server.git
-cd local-video-server
-docker compose up -d
-```
-
-## Static IP Configuration
-
-After setup, configure a static IP by editing netplan:
-
-```bash
-sudo nano /etc/netplan/00-installer-config.yaml
-```
-
-Example configuration:
-
-```yaml
-network:
-  version: 2
-  ethernets:
-    enp0s31f6:  # Your interface name
-      dhcp4: no
-      addresses:
-        - 203.0.113.10/24  # Your static IP
-      routes:
-        - to: default
-          via: 203.0.113.1  # Your gateway
-      nameservers:
-        addresses:
-          - 8.8.8.8
-          - 8.8.4.4
-```
-
-Apply changes:
-
-```bash
-sudo netplan apply
 ```
 
 ## Troubleshooting
@@ -360,7 +415,7 @@ When stacking laptops:
 ## Security Notes
 
 - SSH is restricted to specific IPs only
-- All service ports are firewall-restricted
+- Service ports are only opened when you install the service
 - Root login is disabled (use sudo)
 - Consider setting up SSH keys:
 
@@ -371,6 +426,18 @@ ssh-copy-id user@gpu-server-ip
 # Then disable password auth
 sudo sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 sudo systemctl restart ssh
+```
+
+## File Structure
+
+```
+p16-server-setup/
+├── setup.sh              # Main setup script
+├── install-service.sh    # Service installer (downloaded during setup)
+├── autoinstall.yaml      # Cloud-init autoinstall config
+├── create-iso.sh         # Custom ISO builder script
+├── README.md
+└── LICENSE
 ```
 
 ## License
