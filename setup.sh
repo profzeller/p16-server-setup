@@ -12,6 +12,9 @@
 
 set -e
 
+# Version - update this with each release
+SCRIPT_VERSION="1.6.1"
+
 # ============================================
 # Colors and Formatting
 # ============================================
@@ -108,10 +111,15 @@ get_docker_version() {
     fi
 }
 
+get_current_ip() {
+    # Get the actual current IP address (not from config)
+    hostname -I 2>/dev/null | awk '{print $1}' || ip route get 1 2>/dev/null | awk '{print $7; exit}' || echo "unknown"
+}
+
 get_network_status() {
     if [ -f /etc/netplan/00-static-config.yaml ]; then
-        local ip=$(grep -oP 'addresses:.*\[.\K[0-9.]+' /etc/netplan/00-static-config.yaml 2>/dev/null | head -1)
-        if [ -n "$ip" ]; then
+        local ip=$(get_current_ip)
+        if [ -n "$ip" ] && [ "$ip" != "unknown" ]; then
             echo "Static: $ip"
         else
             echo "Static"
@@ -190,9 +198,11 @@ is_first_run() {
 # ============================================
 show_main_menu() {
     clear
+    local current_ip=$(get_current_ip)
+    local host=$(hostname)
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}         ${BOLD}P16 GPU Server Setup${NC}                              ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}         $(hostname) - $(hostname -I 2>/dev/null | awk '{print $1}')                      ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}         ${BOLD}P16 GPU Server Setup${NC}  ${DIM}v${SCRIPT_VERSION}${NC}                      ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}         ${host} - ${current_ip}                      ${CYAN}║${NC}"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -355,8 +365,8 @@ show_tools_menu() {
         echo -e "  ${CYAN}5)${NC} System Info"
         echo -e "     ${DIM}Detailed hardware and OS info${NC}"
         echo ""
-        echo -e "  ${YELLOW}6)${NC} Update server-setup"
-        echo -e "     ${DIM}Download latest version from GitHub${NC}"
+        echo -e "  ${YELLOW}6)${NC} Update server-setup  ${DIM}[v${SCRIPT_VERSION}]${NC}"
+        echo -e "     ${DIM}Check for and install updates${NC}"
         echo ""
         echo -e "  ${RED}0)${NC} Back to main menu"
         echo ""
@@ -2256,14 +2266,49 @@ update_server_setup() {
 
     local current_script="/usr/local/bin/server-setup"
     local repo_url="https://raw.githubusercontent.com/profzeller/p16-server-setup/main/setup.sh"
+    local version_url="https://api.github.com/repos/profzeller/p16-server-setup/releases/latest"
     local tmp_script="/tmp/server-setup-new.sh"
+
+    echo -e "Current version: ${CYAN}v${SCRIPT_VERSION}${NC}"
+    echo ""
+
+    # Check for latest version
+    log "Checking for updates..."
+    local latest_version=$(curl -fsSL "$version_url" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' | sed 's/^v//')
+
+    if [ -n "$latest_version" ]; then
+        echo -e "Latest version:  ${GREEN}v${latest_version}${NC}"
+        echo ""
+
+        if [ "$SCRIPT_VERSION" = "$latest_version" ]; then
+            log "You are running the latest version!"
+            press_enter
+            return
+        fi
+
+        echo -e "${YELLOW}Update available: v${SCRIPT_VERSION} → v${latest_version}${NC}"
+        echo ""
+    else
+        warn "Could not check latest version (GitHub API)"
+        echo ""
+    fi
+
+    if ! confirm "Download and install update?"; then
+        return
+    fi
 
     log "Downloading latest version..."
     if curl -fsSL "$repo_url" -o "$tmp_script"; then
         if head -1 "$tmp_script" | grep -q "^#!/bin/bash"; then
+            # Extract version from downloaded script
+            local new_version=$(grep -oP '^SCRIPT_VERSION="\K[^"]+' "$tmp_script" | head -1)
+
             chmod +x "$tmp_script"
             mv "$tmp_script" "$current_script"
             log "server-setup updated successfully!"
+            if [ -n "$new_version" ]; then
+                echo -e "Updated to: ${GREEN}v${new_version}${NC}"
+            fi
             echo ""
             echo -e "${YELLOW}Restart server-setup to use the new version.${NC}"
             echo ""
