@@ -12,6 +12,8 @@ This project is part of the P16 GPU Server ecosystem:
 |------------|-------------|------|
 | [p16-server-setup](https://github.com/profzeller/p16-server-setup) | Main setup utility (this repo) | - |
 | [p16-iso-builder](https://github.com/profzeller/p16-iso-builder) | Create custom Ubuntu ISOs for automated deployment | - |
+| [p16-agent](https://github.com/profzeller/p16-agent) | Metrics collection agent for remote monitoring | 9100 |
+| [p16-monitor](https://github.com/profzeller/p16-monitor) | Web dashboard for monitoring all GPU servers | 3000 |
 | [local-ollama-server](https://github.com/profzeller/local-ollama-server) | LLM inference with Ollama (simple, good for dev) | 11434 |
 | [local-vllm-server](https://github.com/profzeller/local-vllm-server) | High-throughput LLM inference with vLLM | 8000 |
 | [local-chatterbox-server](https://github.com/profzeller/local-chatterbox-server) | Text-to-speech with voice cloning | 8100 |
@@ -19,6 +21,7 @@ This project is part of the P16 GPU Server ecosystem:
 | [local-video-server](https://github.com/profzeller/local-video-server) | Video generation with Wan2.1 | 8200 |
 
 All AI services are installable directly from the server-setup menu (option 8).
+P16 Agent is installable from Tools & Monitoring menu (option 6).
 
 ## Features
 
@@ -210,7 +213,8 @@ For 24GB+ VRAM:
   3) Test Setup           - Verify configuration
   4) View Container Logs  - Select container to tail logs
   5) System Info          - Detailed hardware info
-  6) Update server-setup  - Download latest version from GitHub
+  6) P16 Agent            - Install metrics agent for remote monitoring
+  7) Update server-setup  - Download latest version from GitHub
 ```
 
 ### Self-Update Feature
@@ -218,7 +222,7 @@ For 24GB+ VRAM:
 Update to the latest version directly from the menu:
 
 ```
-Tools & Monitoring → 6) Update server-setup
+Tools & Monitoring → 7) Update server-setup
 
 Downloading latest version...
 server-setup updated successfully!
@@ -262,10 +266,11 @@ This will modify system identity. Continue? (y/N):
 |------|---------|
 | 22 | SSH (opened by default) |
 | 8000 | vLLM |
-| 11434 | Ollama |
 | 8100 | Chatterbox TTS |
 | 8188 | ComfyUI Web UI |
 | 8200 | Video Server |
+| 9100 | P16 Agent (monitoring) |
+| 11434 | Ollama |
 
 Firewall ports are opened per-service when you install them.
 

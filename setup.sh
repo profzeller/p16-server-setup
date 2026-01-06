@@ -365,7 +365,10 @@ show_tools_menu() {
         echo -e "  ${CYAN}5)${NC} System Info"
         echo -e "     ${DIM}Detailed hardware and OS info${NC}"
         echo ""
-        echo -e "  ${YELLOW}6)${NC} Update server-setup  ${DIM}[v${SCRIPT_VERSION}]${NC}"
+        echo -e "  ${CYAN}6)${NC} P16 Agent            $(get_service_status p16-agent 9100)"
+        echo -e "     ${DIM}Metrics collection agent for remote monitoring${NC}"
+        echo ""
+        echo -e "  ${YELLOW}7)${NC} Update server-setup  ${DIM}[v${SCRIPT_VERSION}]${NC}"
         echo -e "     ${DIM}Check for and install updates${NC}"
         echo ""
         echo -e "  ${RED}0)${NC} Back to main menu"
@@ -379,7 +382,8 @@ show_tools_menu() {
             3) run_test_setup ;;
             4) view_container_logs ;;
             5) run_system_info ;;
-            6) update_server_setup ;;
+            6) install_agent ;;
+            7) update_server_setup ;;
             0|"") return ;;
             *) echo -e "${RED}Invalid option${NC}"; sleep 1 ;;
         esac
@@ -2128,7 +2132,7 @@ list_services() {
     header "Running GPU Services"
 
     docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | \
-        grep -E "(NAME|ollama|vllm|chatterbox|comfyui|video)" || echo "No GPU services running"
+        grep -E "(NAME|ollama|vllm|chatterbox|comfyui|video|p16-agent)" || echo "No GPU services running"
 
     echo ""
     echo "GPU Status:"
@@ -2153,6 +2157,114 @@ stop_all_services() {
     done
 
     log "All services stopped"
+    press_enter
+}
+
+# ============================================
+# P16 Agent Functions
+# ============================================
+install_agent() {
+    require_root || return
+
+    local name="p16-agent"
+    local repo="https://github.com/profzeller/p16-agent.git"
+    local port="9100"
+    local dir="$INSTALL_DIR/$name"
+
+    header "P16 Monitoring Agent"
+
+    if [ -d "$dir" ]; then
+        echo "P16 Agent is installed."
+        echo ""
+        echo "Options:"
+        echo "  1) Start agent"
+        echo "  2) Stop agent"
+        echo "  3) View logs"
+        echo "  4) Update (git pull)"
+        echo "  5) Reinstall"
+        echo "  6) Remove"
+        echo "  0) Cancel"
+        echo ""
+        read -p "Select option: " agent_choice
+
+        case $agent_choice in
+            1)
+                cd "$dir"
+                docker compose up -d
+                log "P16 Agent started"
+                echo ""
+                echo -e "${GREEN}Agent running at http://$(hostname -I | awk '{print $1}'):$port${NC}"
+                ;;
+            2)
+                cd "$dir"
+                docker compose down
+                log "P16 Agent stopped"
+                ;;
+            3)
+                cd "$dir"
+                docker compose logs -f --tail=100
+                ;;
+            4)
+                cd "$dir"
+                git pull
+                docker compose down 2>/dev/null || true
+                docker compose build --no-cache
+                docker compose up -d
+                log "P16 Agent updated"
+                ;;
+            5)
+                rm -rf "$dir"
+                git clone "$repo" "$dir"
+                cd "$dir"
+                docker compose up -d
+                log "P16 Agent reinstalled"
+                ;;
+            6)
+                cd "$dir"
+                docker compose down 2>/dev/null || true
+                rm -rf "$dir"
+                log "P16 Agent removed"
+                press_enter
+                return
+                ;;
+            0|"")
+                return
+                ;;
+        esac
+    else
+        echo "P16 Agent collects system metrics (CPU, RAM, GPU, services)"
+        echo "and exposes them via HTTP API for remote monitoring."
+        echo ""
+        echo "Port: $port"
+        echo ""
+
+        if ! confirm "Install P16 Agent?" "y"; then
+            return
+        fi
+
+        log "Cloning repository..."
+        git clone "$repo" "$dir"
+        cd "$dir"
+
+        log "Building and starting agent..."
+        docker compose up -d
+        log "P16 Agent installed and started"
+    fi
+
+    # Firewall prompt
+    echo ""
+    echo -e "${YELLOW}Firewall Configuration${NC}"
+    echo "The agent runs on port $port"
+    echo ""
+
+    if confirm "Open port $port in firewall?" "y"; then
+        open_docker_port "$port"
+    fi
+
+    echo ""
+    echo -e "Test endpoint: ${CYAN}curl http://$(hostname -I | awk '{print $1}'):$port/health${NC}"
+    echo -e "Metrics:       ${CYAN}curl http://$(hostname -I | awk '{print $1}'):$port/metrics${NC}"
+
     press_enter
 }
 
