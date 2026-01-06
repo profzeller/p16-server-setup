@@ -355,6 +355,9 @@ show_tools_menu() {
         echo -e "  ${CYAN}5)${NC} System Info"
         echo -e "     ${DIM}Detailed hardware and OS info${NC}"
         echo ""
+        echo -e "  ${YELLOW}6)${NC} Update server-setup"
+        echo -e "     ${DIM}Download latest version from GitHub${NC}"
+        echo ""
         echo -e "  ${RED}0)${NC} Back to main menu"
         echo ""
 
@@ -366,6 +369,7 @@ show_tools_menu() {
             3) run_test_setup ;;
             4) view_container_logs ;;
             5) run_system_info ;;
+            6) update_server_setup ;;
             0|"") return ;;
             *) echo -e "${RED}Invalid option${NC}"; sleep 1 ;;
         esac
@@ -1497,6 +1501,38 @@ run_system_info() {
 
     echo "=== Storage ==="
     df -h /
+
+    press_enter
+}
+
+update_server_setup() {
+    require_root || return
+
+    header "Update server-setup"
+
+    local current_script="/usr/local/bin/server-setup"
+    local repo_url="https://raw.githubusercontent.com/profzeller/p16-server-setup/main/setup.sh"
+    local tmp_script="/tmp/server-setup-new.sh"
+
+    log "Downloading latest version..."
+    if curl -fsSL "$repo_url" -o "$tmp_script"; then
+        if head -1 "$tmp_script" | grep -q "^#!/bin/bash"; then
+            chmod +x "$tmp_script"
+            mv "$tmp_script" "$current_script"
+            log "server-setup updated successfully!"
+            echo ""
+            echo -e "${YELLOW}Restart server-setup to use the new version.${NC}"
+            echo ""
+            if confirm "Restart now?" "y"; then
+                exec "$current_script"
+            fi
+        else
+            rm -f "$tmp_script"
+            warn "Downloaded file doesn't appear to be valid. Update aborted."
+        fi
+    else
+        warn "Failed to download update. Check internet connection."
+    fi
 
     press_enter
 }
