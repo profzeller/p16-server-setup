@@ -147,6 +147,27 @@ get_suspend_status() {
     fi
 }
 
+
+# Open a port in firewall for Docker containers
+open_docker_port() {
+    local port=$1
+
+    if [ -f "$CONFIG_DIR/allowed-ips.conf" ]; then
+        log "Opening port $port for allowed IPs..."
+        while IFS= read -r ip; do
+            [[ "$ip" =~ ^#.*$ ]] && continue
+            [[ -z "$ip" ]] && continue
+            ufw allow from $ip to any port $port proto tcp 2>/dev/null
+            ufw route allow from $ip to any port $port proto tcp 2>/dev/null
+        done < "$CONFIG_DIR/allowed-ips.conf"
+        log "Firewall updated for port $port"
+    else
+        warn "No allowed IPs configured. Opening port $port for all..."
+        ufw allow $port/tcp 2>/dev/null
+        ufw route allow proto tcp to any port $port 2>/dev/null
+    fi
+}
+
 get_service_status() {
     local service_name="$1"
     local port="$2"
@@ -1329,24 +1350,14 @@ install_service() {
         log "$name installed and started"
     fi
 
-    # Firewall prompt
+    # Firewall prompt for Docker container port
     echo ""
     echo -e "${YELLOW}Firewall Configuration${NC}"
     echo "This service runs on port $port"
     echo ""
 
     if confirm "Open port $port in firewall?" "y"; then
-        if [ -f "$CONFIG_DIR/allowed-ips.conf" ]; then
-            log "Opening port $port for allowed IPs..."
-            while IFS= read -r ip; do
-                [[ "$ip" =~ ^#.*$ ]] && continue
-                [[ -z "$ip" ]] && continue
-                ufw allow from $ip to any port $port proto tcp 2>/dev/null
-            done < "$CONFIG_DIR/allowed-ips.conf"
-            log "Firewall updated"
-        else
-            warn "No allowed IPs configured. Run Network & Firewall setup first."
-        fi
+        open_docker_port "$port"
     fi
 
     echo ""
