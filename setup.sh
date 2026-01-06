@@ -1316,6 +1316,181 @@ configure_ollama() {
     press_enter
 }
 
+# Configure ComfyUI models
+configure_comfyui() {
+    local dir="$INSTALL_DIR/local-comfyui-server"
+
+    header "Configure ComfyUI Models"
+
+    if [ ! -d "$dir" ]; then
+        warn "ComfyUI not installed. Install it first."
+        press_enter
+        return
+    fi
+
+    # List current models
+    echo "Installed checkpoint models:"
+    if ls "$dir/models/checkpoints"/*.safetensors "$dir/models/checkpoints"/*.ckpt 2>/dev/null; then
+        ls -lh "$dir/models/checkpoints"/*.safetensors "$dir/models/checkpoints"/*.ckpt 2>/dev/null | awk '{print "  " $NF " (" $5 ")"}'
+    else
+        echo "  (none)"
+    fi
+    echo ""
+
+    echo -e "${YELLOW}Available actions:${NC}"
+    echo ""
+    echo "  1) Download a checkpoint model"
+    echo "  2) Download a VAE model"
+    echo "  3) Download a LoRA model"
+    echo "  4) Show model directory paths"
+    echo "  0) Cancel"
+    echo ""
+    read -p "Select option: " comfy_choice
+
+    case $comfy_choice in
+        1)
+            echo ""
+            echo -e "${CYAN}Popular Checkpoint Models:${NC}"
+            echo ""
+            echo "  1) SDXL Base 1.0 (6.9GB) - Best quality, requires 8GB+ VRAM"
+            echo "  2) SDXL Turbo (6.9GB) - Fast SDXL, 1-4 steps"
+            echo "  3) SD 1.5 (4.3GB) - Classic, works on 4GB+ VRAM"
+            echo "  4) Realistic Vision v5.1 (2GB) - Photorealistic SD 1.5"
+            echo "  5) DreamShaper XL (6.5GB) - Artistic SDXL"
+            echo "  6) Juggernaut XL (6.5GB) - High quality SDXL"
+            echo "  7) Custom URL"
+            echo "  0) Cancel"
+            echo ""
+            read -p "Select model: " model_choice
+
+            local model_url=""
+            local model_name=""
+
+            case $model_choice in
+                1)
+                    model_url="https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors"
+                    model_name="sd_xl_base_1.0.safetensors"
+                    ;;
+                2)
+                    model_url="https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors"
+                    model_name="sd_xl_turbo_1.0_fp16.safetensors"
+                    ;;
+                3)
+                    model_url="https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors"
+                    model_name="v1-5-pruned-emaonly.safetensors"
+                    ;;
+                4)
+                    model_url="https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE/resolve/main/Realistic_Vision_V5.1_fp16-no-ema.safetensors"
+                    model_name="Realistic_Vision_V5.1.safetensors"
+                    ;;
+                5)
+                    model_url="https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaperXL_Turbo_v2_1.safetensors"
+                    model_name="DreamShaperXL_Turbo_v2_1.safetensors"
+                    ;;
+                6)
+                    model_url="https://huggingface.co/RunDiffusion/Juggernaut-XL-v9/resolve/main/Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors"
+                    model_name="Juggernaut-XL_v9.safetensors"
+                    ;;
+                7)
+                    read -p "Enter model URL: " model_url
+                    read -p "Save as filename: " model_name
+                    ;;
+                0|"") return ;;
+                *) warn "Invalid option"; return ;;
+            esac
+
+            if [ -n "$model_url" ] && [ -n "$model_name" ]; then
+                log "Downloading $model_name..."
+                echo "This may take several minutes depending on your connection."
+                echo ""
+                wget -c --progress=bar:force -O "$dir/models/checkpoints/$model_name" "$model_url"
+                if [ $? -eq 0 ]; then
+                    log "Model downloaded successfully!"
+                    log "Location: $dir/models/checkpoints/$model_name"
+                else
+                    error "Download failed"
+                fi
+            fi
+            ;;
+        2)
+            echo ""
+            echo -e "${CYAN}Popular VAE Models:${NC}"
+            echo ""
+            echo "  1) SDXL VAE (335MB) - For SDXL models"
+            echo "  2) SD 1.5 VAE (335MB) - For SD 1.5 models"
+            echo "  3) Custom URL"
+            echo "  0) Cancel"
+            echo ""
+            read -p "Select VAE: " vae_choice
+
+            local vae_url=""
+            local vae_name=""
+
+            case $vae_choice in
+                1)
+                    vae_url="https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors"
+                    vae_name="sdxl_vae.safetensors"
+                    ;;
+                2)
+                    vae_url="https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors"
+                    vae_name="vae-ft-mse-840000-ema-pruned.safetensors"
+                    ;;
+                3)
+                    read -p "Enter VAE URL: " vae_url
+                    read -p "Save as filename: " vae_name
+                    ;;
+                0|"") return ;;
+                *) warn "Invalid option"; return ;;
+            esac
+
+            if [ -n "$vae_url" ] && [ -n "$vae_name" ]; then
+                log "Downloading $vae_name..."
+                wget -c --progress=bar:force -O "$dir/models/vae/$vae_name" "$vae_url"
+                if [ $? -eq 0 ]; then
+                    log "VAE downloaded: $dir/models/vae/$vae_name"
+                fi
+            fi
+            ;;
+        3)
+            echo ""
+            echo -e "${CYAN}Popular LoRA Models:${NC}"
+            echo ""
+            echo "  LoRAs are smaller models that modify checkpoint behavior."
+            echo "  Browse: https://civitai.com/models?types=LORA"
+            echo ""
+            read -p "Enter LoRA URL: " lora_url
+            if [ -n "$lora_url" ]; then
+                read -p "Save as filename: " lora_name
+                if [ -n "$lora_name" ]; then
+                    log "Downloading $lora_name..."
+                    wget -c --progress=bar:force -O "$dir/models/loras/$lora_name" "$lora_url"
+                    if [ $? -eq 0 ]; then
+                        log "LoRA downloaded: $dir/models/loras/$lora_name"
+                    fi
+                fi
+            fi
+            ;;
+        4)
+            echo ""
+            echo -e "${CYAN}Model Directory Paths:${NC}"
+            echo ""
+            echo "  Checkpoints: $dir/models/checkpoints/"
+            echo "  VAE:         $dir/models/vae/"
+            echo "  LoRA:        $dir/models/loras/"
+            echo "  ControlNet:  $dir/models/controlnet/"
+            echo "  Upscale:     $dir/models/upscale_models/"
+            echo "  Embeddings:  $dir/models/embeddings/"
+            echo "  CLIP:        $dir/models/clip/"
+            echo ""
+            echo "Download models manually and place in these directories."
+            echo ""
+            ;;
+        0|"") return ;;
+    esac
+
+    press_enter
+}
+
 install_service() {
     require_root || return
 
@@ -1357,6 +1532,7 @@ install_service() {
                 case $name in
                     vllm) configure_vllm ;;
                     ollama) configure_ollama ;;
+                    comfyui) configure_comfyui ;;
                     *) warn "Model configuration not available for $name" ;;
                 esac
                 return
