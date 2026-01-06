@@ -1,7 +1,7 @@
 {
-  "tag_name": "v1.6.0",
-  "name": "v1.6.0 - Docker UFW Firewall Integration",
-  "body": "## Security Enhancement\n\nProper Docker UFW integration that restricts container access to configured IPs only.\n\n### The Problem\nDocker manipulates iptables directly, bypassing UFW. Even with UFW rules restricting access to specific IPs, Docker containers were accessible from anywhere.\n\n### The Solution\nCreates a custom `FILTERS` chain in iptables that:\n- Allows established connections\n- Allows private networks (192.168.x.x, 10.x.x.x, 172.x.x.x)\n- Allows IPs from `/etc/gpu-server/allowed-ips.conf`\n- Allows Docker internal traffic\n- **Drops everything else**\n\n### Quick Fix for Existing Servers\n```bash\ncurl -sSL https://raw.githubusercontent.com/profzeller/p16-server-setup/main/fix-docker-ufw.sh | sudo bash\nsudo ufw enable\nsudo ufw reload\nsudo systemctl restart docker\n```\n\n### Verification\n```bash\nsudo iptables -L FILTERS -n -v\n```\nShould show your allowed IPs with RETURN targets and a final DROP rule.\n\n### Changes\n- Rewrote `configure_docker_ufw()` to use custom FILTERS chain\n- Auto-enables UFW if not active\n- Reads allowed IPs from config file\n- Restarts Docker after applying rules\n- Standalone fix script for existing servers",
+  "tag_name": "v1.6.1",
+  "name": "v1.6.1 - Version Display & Update Improvements",
+  "body": "## UI Improvements\n\n### Version Display\n- Main menu header now shows version\n- Tools menu shows current version next to Update option\n- Update screen shows current vs available version\n- Checks GitHub API for latest release\n\n### IP Address Fix\n- Header now shows current IP address (not from config file)\n- IP updates when server IP changes\n\n### How to Update\n```\nserver-setup > Tools & Monitoring > Update server-setup\n```",
   "draft": false,
   "prerelease": false
 }
