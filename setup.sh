@@ -744,8 +744,51 @@ run_docker() {
         usermod -aG docker "$SUDO_USER"
     fi
 
+    # Configure UFW to control Docker traffic
+    configure_docker_ufw
+
     log "Docker installed successfully"
     press_enter
+}
+
+# Configure UFW to properly control Docker container traffic
+# By default, Docker bypasses UFW by manipulating iptables directly
+configure_docker_ufw() {
+    log "Configuring UFW to control Docker traffic..."
+
+    local after_rules="/etc/ufw/after.rules"
+    local marker="# BEGIN DOCKER-USER UFW INTEGRATION"
+
+    # Check if already configured
+    if grep -q "$marker" "$after_rules" 2>/dev/null; then
+        log "Docker UFW integration already configured"
+        return
+    fi
+
+    # Backup the file
+    cp "$after_rules" "${after_rules}.backup.$(date +%Y%m%d)" 2>/dev/null || true
+
+    # Add Docker-USER chain rules before the final COMMIT
+    # This makes Docker traffic go through ufw-user-forward chain
+    cat >> "$after_rules" << 'EOF'
+
+# BEGIN DOCKER-USER UFW INTEGRATION
+# Route Docker container traffic through UFW
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -j ufw-user-forward
+-A DOCKER-USER -j RETURN
+COMMIT
+# END DOCKER-USER UFW INTEGRATION
+EOF
+
+    log "Docker UFW integration added to $after_rules"
+
+    # Reload UFW to apply changes
+    if ufw status | grep -q "Status: active"; then
+        ufw reload
+        log "UFW reloaded"
+    fi
 }
 
 # ============================================
