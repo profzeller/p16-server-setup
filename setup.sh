@@ -1339,10 +1339,14 @@ configure_comfyui() {
 
     echo -e "${YELLOW}Available actions:${NC}"
     echo ""
+    echo -e "  ${CYAN}P) Install Preset (recommended models + settings)${NC}"
+    echo ""
     echo "  1) Download a checkpoint model"
     echo "  2) Download a VAE model"
     echo "  3) Download a LoRA model"
-    echo "  4) Show model directory paths"
+    echo "  4) Download an upscaler model"
+    echo "  5) Show model directory paths"
+    echo "  6) View/Edit settings"
     echo "  0) Cancel"
     echo ""
     read -p "Select option: " comfy_choice
@@ -1476,6 +1480,50 @@ configure_comfyui() {
             ;;
         4)
             echo ""
+            echo -e "${CYAN}Upscaler Models:${NC}"
+            echo ""
+            echo "  1) 4x-UltraSharp (67MB) - Best quality upscaler"
+            echo "  2) 4x-AnimeSharp (67MB) - For anime/illustration"
+            echo "  3) ESRGAN 4x (67MB) - General purpose"
+            echo "  4) Custom URL"
+            echo "  0) Cancel"
+            echo ""
+            read -p "Select upscaler: " upscale_choice
+
+            local upscale_url=""
+            local upscale_name=""
+
+            case $upscale_choice in
+                1)
+                    upscale_url="https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x-UltraSharp.pth"
+                    upscale_name="4x-UltraSharp.pth"
+                    ;;
+                2)
+                    upscale_url="https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x-AnimeSharp.pth"
+                    upscale_name="4x-AnimeSharp.pth"
+                    ;;
+                3)
+                    upscale_url="https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x_NMKD-Superscale-SP_178000_G.pth"
+                    upscale_name="4x_ESRGAN.pth"
+                    ;;
+                4)
+                    read -p "Enter upscaler URL: " upscale_url
+                    read -p "Save as filename: " upscale_name
+                    ;;
+                0|"") ;;
+            esac
+
+            if [ -n "$upscale_url" ] && [ -n "$upscale_name" ]; then
+                mkdir -p "$dir/models/upscale_models"
+                log "Downloading $upscale_name..."
+                wget -c --progress=bar:force -O "$dir/models/upscale_models/$upscale_name" "$upscale_url"
+                if [ $? -eq 0 ]; then
+                    log "Upscaler downloaded: $dir/models/upscale_models/$upscale_name"
+                fi
+            fi
+            ;;
+        5)
+            echo ""
             echo -e "${CYAN}Model Directory Paths:${NC}"
             echo ""
             echo "  Checkpoints: $dir/models/checkpoints/"
@@ -1489,10 +1537,279 @@ configure_comfyui() {
             echo "Download models manually and place in these directories."
             echo ""
             ;;
+        6)
+            view_comfyui_settings "$dir"
+            ;;
+        [Pp])
+            install_comfyui_preset "$dir"
+            ;;
         0|"") return ;;
     esac
 
     press_enter
+}
+
+# View/edit ComfyUI settings
+view_comfyui_settings() {
+    local dir="$1"
+    local settings_file="$dir/settings.json"
+
+    echo ""
+    echo -e "${CYAN}Current ComfyUI Settings:${NC}"
+    echo ""
+
+    if [ -f "$settings_file" ]; then
+        cat "$settings_file"
+    else
+        echo "No custom settings file found."
+        echo "Settings are configured per-workflow in ComfyUI."
+    fi
+
+    echo ""
+    echo -e "${YELLOW}Recommended settings for photorealistic output:${NC}"
+    echo ""
+    echo "  Sampler:    dpmpp_2m or euler_ancestral"
+    echo "  Scheduler:  karras"
+    echo "  Steps:      25-35"
+    echo "  CFG Scale:  4-6 (SDXL) or 7-9 (SD 1.5)"
+    echo "  Resolution: 1024x1024 (SDXL) or 512x512 (SD 1.5)"
+    echo ""
+}
+
+# Install ComfyUI preset
+install_comfyui_preset() {
+    local dir="$1"
+
+    echo ""
+    echo -e "${CYAN}ComfyUI Presets:${NC}"
+    echo ""
+    echo "  1) Photorealistic (Gemini Flash-like)"
+    echo "     - Juggernaut XL v9 (6.5GB)"
+    echo "     - SDXL VAE (335MB)"
+    echo "     - 4x-UltraSharp upscaler (67MB)"
+    echo "     - Recommended settings saved"
+    echo ""
+    echo "  2) Fast & Good (SDXL Turbo)"
+    echo "     - SDXL Turbo (6.9GB)"
+    echo "     - SDXL VAE (335MB)"
+    echo "     - 1-4 step generation"
+    echo ""
+    echo "  3) Lightweight (SD 1.5)"
+    echo "     - Realistic Vision v5.1 (2GB)"
+    echo "     - SD 1.5 VAE (335MB)"
+    echo "     - Works on 4GB VRAM"
+    echo ""
+    echo "  0) Cancel"
+    echo ""
+    read -p "Select preset: " preset_choice
+
+    case $preset_choice in
+        1)
+            install_photorealistic_preset "$dir"
+            ;;
+        2)
+            install_fast_preset "$dir"
+            ;;
+        3)
+            install_lightweight_preset "$dir"
+            ;;
+        0|"") return ;;
+    esac
+}
+
+# Download helper function
+download_model() {
+    local url="$1"
+    local dest="$2"
+    local name="$3"
+
+    if [ -f "$dest" ]; then
+        log "$name already exists, skipping..."
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$dest")"
+    log "Downloading $name..."
+    wget -c --progress=bar:force -O "$dest" "$url"
+    return $?
+}
+
+# Photorealistic preset (Gemini Flash-like)
+install_photorealistic_preset() {
+    local dir="$1"
+
+    header "Installing Photorealistic Preset"
+    echo "This will download ~7GB of models for best photorealistic quality."
+    echo ""
+    if ! confirm "Continue with download?" "y"; then
+        return
+    fi
+
+    echo ""
+    log "Installing Photorealistic (Gemini Flash-like) preset..."
+    echo ""
+
+    # Download Juggernaut XL
+    download_model \
+        "https://huggingface.co/RunDiffusion/Juggernaut-XL-v9/resolve/main/Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors" \
+        "$dir/models/checkpoints/Juggernaut-XL_v9.safetensors" \
+        "Juggernaut XL v9"
+
+    # Download SDXL VAE
+    download_model \
+        "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors" \
+        "$dir/models/vae/sdxl_vae.safetensors" \
+        "SDXL VAE"
+
+    # Download 4x-UltraSharp upscaler
+    download_model \
+        "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x-UltraSharp.pth" \
+        "$dir/models/upscale_models/4x-UltraSharp.pth" \
+        "4x-UltraSharp Upscaler"
+
+    # Save recommended settings
+    mkdir -p "$dir/presets"
+    cat > "$dir/presets/photorealistic.json" << 'PRESET'
+{
+    "name": "Photorealistic (Gemini Flash-like)",
+    "checkpoint": "Juggernaut-XL_v9.safetensors",
+    "vae": "sdxl_vae.safetensors",
+    "upscaler": "4x-UltraSharp.pth",
+    "settings": {
+        "sampler": "dpmpp_2m",
+        "scheduler": "karras",
+        "steps": 30,
+        "cfg_scale": 5,
+        "width": 1024,
+        "height": 1024,
+        "clip_skip": 2
+    },
+    "recommended_prompt_prefix": "masterpiece, best quality, highly detailed, photorealistic, 8k uhd, professional photography, natural lighting",
+    "recommended_negative": "cartoon, anime, illustration, painting, drawing, art, sketch, low quality, blurry, deformed, ugly, bad anatomy, disfigured, mutation, extra limbs"
+}
+PRESET
+
+    log "Photorealistic preset installed!"
+    echo ""
+    echo -e "${GREEN}Models downloaded:${NC}"
+    echo "  ✓ Juggernaut XL v9 (checkpoint)"
+    echo "  ✓ SDXL VAE"
+    echo "  ✓ 4x-UltraSharp (upscaler)"
+    echo ""
+    echo -e "${YELLOW}Recommended workflow settings:${NC}"
+    echo "  Sampler:    dpmpp_2m"
+    echo "  Scheduler:  karras"
+    echo "  Steps:      30"
+    echo "  CFG Scale:  5"
+    echo "  Resolution: 1024x1024"
+    echo ""
+    echo -e "${YELLOW}Prompt tips:${NC}"
+    echo "  Add to prompt: masterpiece, best quality, photorealistic, 8k uhd"
+    echo "  Negative:      cartoon, anime, low quality, blurry, deformed"
+    echo ""
+    echo "Settings saved to: $dir/presets/photorealistic.json"
+}
+
+# Fast preset (SDXL Turbo)
+install_fast_preset() {
+    local dir="$1"
+
+    header "Installing Fast Preset"
+    echo "This will download ~7GB of models for fast 1-4 step generation."
+    echo ""
+    if ! confirm "Continue with download?" "y"; then
+        return
+    fi
+
+    echo ""
+    log "Installing Fast & Good (SDXL Turbo) preset..."
+    echo ""
+
+    download_model \
+        "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors" \
+        "$dir/models/checkpoints/sd_xl_turbo_1.0_fp16.safetensors" \
+        "SDXL Turbo"
+
+    download_model \
+        "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors" \
+        "$dir/models/vae/sdxl_vae.safetensors" \
+        "SDXL VAE"
+
+    mkdir -p "$dir/presets"
+    cat > "$dir/presets/fast.json" << 'PRESET'
+{
+    "name": "Fast & Good (SDXL Turbo)",
+    "checkpoint": "sd_xl_turbo_1.0_fp16.safetensors",
+    "vae": "sdxl_vae.safetensors",
+    "settings": {
+        "sampler": "euler_ancestral",
+        "scheduler": "normal",
+        "steps": 4,
+        "cfg_scale": 1,
+        "width": 1024,
+        "height": 1024
+    },
+    "notes": "SDXL Turbo uses very low steps (1-4) and CFG (1-2)"
+}
+PRESET
+
+    log "Fast preset installed!"
+    echo ""
+    echo -e "${YELLOW}SDXL Turbo settings:${NC}"
+    echo "  Steps:     1-4 (yes, really!)"
+    echo "  CFG Scale: 1-2"
+    echo "  Sampler:   euler_ancestral"
+}
+
+# Lightweight preset (SD 1.5)
+install_lightweight_preset() {
+    local dir="$1"
+
+    header "Installing Lightweight Preset"
+    echo "This will download ~2.5GB of models that work on 4GB+ VRAM."
+    echo ""
+    if ! confirm "Continue with download?" "y"; then
+        return
+    fi
+
+    echo ""
+    log "Installing Lightweight (SD 1.5) preset..."
+    echo ""
+
+    download_model \
+        "https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE/resolve/main/Realistic_Vision_V5.1_fp16-no-ema.safetensors" \
+        "$dir/models/checkpoints/Realistic_Vision_V5.1.safetensors" \
+        "Realistic Vision v5.1"
+
+    download_model \
+        "https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors" \
+        "$dir/models/vae/vae-ft-mse-840000-ema-pruned.safetensors" \
+        "SD 1.5 VAE"
+
+    mkdir -p "$dir/presets"
+    cat > "$dir/presets/lightweight.json" << 'PRESET'
+{
+    "name": "Lightweight (SD 1.5)",
+    "checkpoint": "Realistic_Vision_V5.1.safetensors",
+    "vae": "vae-ft-mse-840000-ema-pruned.safetensors",
+    "settings": {
+        "sampler": "dpmpp_2m",
+        "scheduler": "karras",
+        "steps": 25,
+        "cfg_scale": 7,
+        "width": 512,
+        "height": 512
+    },
+    "notes": "SD 1.5 works on 4GB VRAM. Use 512x512 or 768x768 resolution."
+}
+PRESET
+
+    log "Lightweight preset installed!"
+    echo ""
+    echo -e "${YELLOW}SD 1.5 settings:${NC}"
+    echo "  Resolution: 512x512 or 768x768"
+    echo "  Steps:      20-30"
+    echo "  CFG Scale:  7-9"
 }
 
 install_service() {
