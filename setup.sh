@@ -1400,6 +1400,8 @@ configure_comfyui() {
             esac
 
             if [ -n "$model_url" ] && [ -n "$model_name" ]; then
+                # Ensure directory exists
+                mkdir -p "$dir/models/checkpoints"
                 log "Downloading $model_name..."
                 echo "This may take several minutes depending on your connection."
                 echo ""
@@ -1444,6 +1446,7 @@ configure_comfyui() {
             esac
 
             if [ -n "$vae_url" ] && [ -n "$vae_name" ]; then
+                mkdir -p "$dir/models/vae"
                 log "Downloading $vae_name..."
                 wget -c --progress=bar:force -O "$dir/models/vae/$vae_name" "$vae_url"
                 if [ $? -eq 0 ]; then
@@ -1462,6 +1465,7 @@ configure_comfyui() {
             if [ -n "$lora_url" ]; then
                 read -p "Save as filename: " lora_name
                 if [ -n "$lora_name" ]; then
+                    mkdir -p "$dir/models/loras"
                     log "Downloading $lora_name..."
                     wget -c --progress=bar:force -O "$dir/models/loras/$lora_name" "$lora_url"
                     if [ $? -eq 0 ]; then
