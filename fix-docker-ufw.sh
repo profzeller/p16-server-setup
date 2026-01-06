@@ -98,7 +98,12 @@ EOFBLOCK
 
 log "Docker UFW integration added"
 
-# Step 6: Reload UFW
+# Step 6: Enable and reload UFW
+if ! ufw status | grep -q "Status: active"; then
+    log "UFW is not enabled. Enabling now..."
+    echo "y" | ufw enable
+fi
+
 log "Reloading UFW..."
 if ! ufw reload 2>&1; then
     error "UFW reload failed. Check /etc/ufw/after.rules for syntax errors"
