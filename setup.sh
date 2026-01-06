@@ -1585,18 +1585,18 @@ install_comfyui_preset() {
     echo ""
     echo "  1) Photorealistic (Gemini Flash-like)"
     echo "     - Juggernaut XL v9 (6.5GB)"
-    echo "     - SDXL VAE (335MB)"
-    echo "     - 4x-UltraSharp upscaler (67MB)"
-    echo "     - Recommended settings saved"
+    echo "     - SDXL VAE + 4x-UltraSharp upscaler"
     echo ""
-    echo "  2) Fast & Good (SDXL Turbo)"
+    echo "  2) Versatile (Multi-style)"
+    echo "     - SDXL Base + DreamShaper XL (~13GB)"
+    echo "     - Good for photos, art, illustrations, abstracts"
+    echo ""
+    echo "  3) Fast & Good (SDXL Turbo)"
     echo "     - SDXL Turbo (6.9GB)"
-    echo "     - SDXL VAE (335MB)"
     echo "     - 1-4 step generation"
     echo ""
-    echo "  3) Lightweight (SD 1.5)"
+    echo "  4) Lightweight (SD 1.5)"
     echo "     - Realistic Vision v5.1 (2GB)"
-    echo "     - SD 1.5 VAE (335MB)"
     echo "     - Works on 4GB VRAM"
     echo ""
     echo "  0) Cancel"
@@ -1608,9 +1608,12 @@ install_comfyui_preset() {
             install_photorealistic_preset "$dir"
             ;;
         2)
-            install_fast_preset "$dir"
+            install_versatile_preset "$dir"
             ;;
         3)
+            install_fast_preset "$dir"
+            ;;
+        4)
             install_lightweight_preset "$dir"
             ;;
         0|"") return ;;
@@ -1708,6 +1711,154 @@ PRESET
     echo "  Negative:      cartoon, anime, low quality, blurry, deformed"
     echo ""
     echo "Settings saved to: $dir/presets/photorealistic.json"
+}
+
+# Versatile preset (Multi-style)
+install_versatile_preset() {
+    local dir="$1"
+
+    header "Installing Versatile (Multi-style) Preset"
+    echo "This will download ~14GB of models for maximum flexibility."
+    echo ""
+    echo "Includes:"
+    echo "  - SDXL Base 1.0 (best for general use)"
+    echo "  - DreamShaper XL (artistic/creative)"
+    echo "  - SDXL VAE (better colors)"
+    echo "  - 4x-UltraSharp (upscaler)"
+    echo ""
+    if ! confirm "Continue with download?" "y"; then
+        return
+    fi
+
+    echo ""
+    log "Installing Versatile (Multi-style) preset..."
+    echo ""
+
+    # Download SDXL Base
+    download_model \
+        "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors" \
+        "$dir/models/checkpoints/sd_xl_base_1.0.safetensors" \
+        "SDXL Base 1.0"
+
+    # Download DreamShaper XL
+    download_model \
+        "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaperXL_Turbo_v2_1.safetensors" \
+        "$dir/models/checkpoints/DreamShaperXL_Turbo_v2_1.safetensors" \
+        "DreamShaper XL"
+
+    # Download SDXL VAE
+    download_model \
+        "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors" \
+        "$dir/models/vae/sdxl_vae.safetensors" \
+        "SDXL VAE"
+
+    # Download 4x-UltraSharp upscaler
+    download_model \
+        "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x-UltraSharp.pth" \
+        "$dir/models/upscale_models/4x-UltraSharp.pth" \
+        "4x-UltraSharp Upscaler"
+
+    # Save preset config
+    mkdir -p "$dir/presets"
+    cat > "$dir/presets/versatile.json" << 'PRESET'
+{
+    "name": "Versatile (Multi-style)",
+    "checkpoints": {
+        "sdxl_base": {
+            "file": "sd_xl_base_1.0.safetensors",
+            "best_for": ["photorealistic", "general", "portraits", "landscapes"]
+        },
+        "dreamshaper": {
+            "file": "DreamShaperXL_Turbo_v2_1.safetensors",
+            "best_for": ["artistic", "illustration", "fantasy", "abstract", "creative"]
+        }
+    },
+    "vae": "sdxl_vae.safetensors",
+    "upscaler": "4x-UltraSharp.pth",
+    "style_guides": {
+        "photorealistic": {
+            "checkpoint": "sd_xl_base_1.0.safetensors",
+            "cfg_scale": 5,
+            "steps": 30,
+            "prompt_add": "photorealistic, 8k uhd, professional photography, natural lighting",
+            "negative": "cartoon, anime, illustration, painting, drawing"
+        },
+        "artistic": {
+            "checkpoint": "DreamShaperXL_Turbo_v2_1.safetensors",
+            "cfg_scale": 4,
+            "steps": 25,
+            "prompt_add": "artistic, creative, beautiful composition",
+            "negative": "ugly, deformed, low quality"
+        },
+        "illustration": {
+            "checkpoint": "DreamShaperXL_Turbo_v2_1.safetensors",
+            "cfg_scale": 5,
+            "steps": 25,
+            "prompt_add": "digital illustration, clean lines, professional artwork",
+            "negative": "photo, realistic, blurry, low quality"
+        },
+        "abstract": {
+            "checkpoint": "DreamShaperXL_Turbo_v2_1.safetensors",
+            "cfg_scale": 3,
+            "steps": 20,
+            "prompt_add": "abstract art, geometric, modern art, vibrant colors",
+            "negative": "realistic, photo, ugly"
+        },
+        "infographic": {
+            "checkpoint": "sd_xl_base_1.0.safetensors",
+            "cfg_scale": 6,
+            "steps": 30,
+            "prompt_add": "infographic style, flat design, clean, professional, icons",
+            "negative": "photo, realistic, 3d, complex"
+        },
+        "3d_render": {
+            "checkpoint": "sd_xl_base_1.0.safetensors",
+            "cfg_scale": 5,
+            "steps": 35,
+            "prompt_add": "3D render, octane render, blender, smooth lighting, high detail",
+            "negative": "flat, 2d, sketch, drawing"
+        }
+    },
+    "base_settings": {
+        "sampler": "dpmpp_2m",
+        "scheduler": "karras",
+        "width": 1024,
+        "height": 1024
+    }
+}
+PRESET
+
+    log "Versatile preset installed!"
+    echo ""
+    echo -e "${GREEN}Models downloaded:${NC}"
+    echo "  ✓ SDXL Base 1.0 (general purpose)"
+    echo "  ✓ DreamShaper XL (artistic/creative)"
+    echo "  ✓ SDXL VAE"
+    echo "  ✓ 4x-UltraSharp (upscaler)"
+    echo ""
+    echo -e "${YELLOW}Which model to use:${NC}"
+    echo ""
+    echo "  SDXL Base 1.0 - Best for:"
+    echo "    • Photorealistic images"
+    echo "    • Infographics & diagrams"
+    echo "    • 3D renders"
+    echo "    • General purpose"
+    echo ""
+    echo "  DreamShaper XL - Best for:"
+    echo "    • Artistic/creative styles"
+    echo "    • Illustrations"
+    echo "    • Abstract art"
+    echo "    • Fantasy scenes"
+    echo ""
+    echo -e "${YELLOW}Style prompt examples:${NC}"
+    echo ""
+    echo "  Photorealistic: 'professional photography, natural lighting, 8k'"
+    echo "  Illustration:   'digital illustration, clean lines, vector style'"
+    echo "  Abstract:       'abstract art, geometric shapes, vibrant colors'"
+    echo "  Infographic:    'infographic style, flat design, icons, diagram'"
+    echo "  3D Render:      '3D render, octane render, smooth lighting'"
+    echo ""
+    echo "Settings saved to: $dir/presets/versatile.json"
 }
 
 # Fast preset (SDXL Turbo)
