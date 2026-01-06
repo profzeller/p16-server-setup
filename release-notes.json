@@ -1,0 +1,7 @@
+{
+  "tag_name": "v1.5.1",
+  "name": "v1.5.1 - Documentation Update",
+  "body": "## Documentation Update\n\nComprehensive README documentation for all features.\n\n### New Documentation\n- **ComfyUI Model Presets** - All 4 presets with style guides\n- **Versatile Preset Style Table** - Quick reference for model/CFG/prompts\n- **vLLM Model Configuration** - Recommended models by VRAM size\n- **Service Management Options** - Start/stop/configure/update/reinstall\n- **Self-Update Feature** - Tools menu option 6\n- **Docker UFW Integration** - Security documentation\n\n### Features Already Included (since v1.0)\n- Interactive menu system with status indicators\n- System Settings, AI Services, Tools sub-menus\n- NVIDIA version selection (550/560/570)\n- First-run detection and auto-boot\n- ComfyUI presets (Photorealistic, Versatile, Fast, Lightweight)\n- Model configuration for vLLM, Ollama, ComfyUI\n- Self-update from GitHub\n- Docker UFW firewall integration",
+  "draft": false,
+  "prerelease": false
+}

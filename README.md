@@ -122,6 +122,70 @@ The server automatically boots into the management menu:
 
 Each service shows options to start/stop/update/reinstall when selected.
 
+**Service Management Options:**
+```
+Service already installed.
+
+Options:
+  1) Start service
+  2) Stop service
+  3) Configure model
+  4) Update (git pull)
+  5) Reinstall
+  0) Cancel
+```
+
+### ComfyUI Model Presets
+
+ComfyUI includes a preset system for quick model setup:
+
+```
+ComfyUI Presets:
+
+  1) Photorealistic (Gemini Flash-like)
+     - Juggernaut XL v9 (6.5GB)
+     - SDXL VAE + 4x-UltraSharp upscaler
+
+  2) Versatile (Multi-style)
+     - SDXL Base + DreamShaper XL (~14GB)
+     - Good for photos, art, illustrations, abstracts
+
+  3) Fast & Good (SDXL Turbo)
+     - SDXL Turbo (6.9GB)
+     - 1-4 step generation
+
+  4) Lightweight (SD 1.5)
+     - Realistic Vision v5.1 (2GB)
+     - Works on 4GB VRAM
+```
+
+**Versatile Preset Style Guides:**
+
+| Style | Model | CFG | Prompt Tips |
+|-------|-------|-----|-------------|
+| Photorealistic | SDXL Base | 5 | photography, natural lighting, 8k |
+| Artistic | DreamShaper | 4 | artistic, creative, beautiful |
+| Illustration | DreamShaper | 5 | digital illustration, clean lines |
+| Abstract | DreamShaper | 3 | abstract art, geometric, vibrant |
+| Infographic | SDXL Base | 6 | flat design, icons, diagram |
+| 3D Render | SDXL Base | 5 | octane render, smooth lighting |
+
+### vLLM Model Configuration
+
+Select from optimized models for your VRAM:
+
+```
+Recommended models for 16GB VRAM:
+  1) mistralai/Mistral-7B-Instruct-v0.3 (7B, fast)
+  2) Qwen/Qwen2.5-7B-Instruct (7B, multilingual)
+  3) meta-llama/Llama-3.2-3B-Instruct (3B, very fast)
+  4) microsoft/Phi-3-mini-4k-instruct (3.8B, efficient)
+
+For 24GB+ VRAM:
+  5) Qwen/Qwen2.5-14B-Instruct (14B, best quality)
+  6) meta-llama/Llama-3.1-8B-Instruct (8B)
+```
+
 ### Tools & Monitoring Sub-menu
 
 ```
@@ -130,6 +194,21 @@ Each service shows options to start/stop/update/reinstall when selected.
   3) Test Setup           - Verify configuration
   4) View Container Logs  - Select container to tail logs
   5) System Info          - Detailed hardware info
+  6) Update server-setup  - Download latest version from GitHub
+```
+
+### Self-Update Feature
+
+Update to the latest version directly from the menu:
+
+```
+Tools & Monitoring → 6) Update server-setup
+
+Downloading latest version...
+server-setup updated successfully!
+
+Restart server-setup to use the new version.
+Restart now? (Y/n):
 ```
 
 ## NVIDIA Driver Selection
@@ -298,6 +377,22 @@ docker ps -a
 - Service ports opened only when installing services
 - Root login disabled (use sudo)
 - Passwords required with confirmation
+- **Docker UFW Integration** - Container traffic routed through firewall
+
+### Docker UFW Integration
+
+By default, Docker bypasses UFW by manipulating iptables directly. This setup configures the `DOCKER-USER` chain to route container traffic through UFW rules, ensuring your firewall configuration is respected.
+
+```bash
+# Configured in /etc/ufw/after.rules:
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -j ufw-user-forward
+-A DOCKER-USER -j RETURN
+COMMIT
+```
+
+This means AI service ports (8000, 11434, 8188, etc.) are properly restricted to your allowed IPs.
 
 ## License
 
