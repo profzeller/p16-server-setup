@@ -753,41 +753,94 @@ run_docker() {
 
 # Configure UFW to properly control Docker container traffic
 # By default, Docker bypasses UFW by manipulating iptables directly
+# This creates a FILTERS chain that only allows configured IPs
 configure_docker_ufw() {
     log "Configuring UFW to control Docker traffic..."
 
     local after_rules="/etc/ufw/after.rules"
     local marker="# BEGIN DOCKER-USER UFW INTEGRATION"
+    local allowed_ips_file="$CONFIG_DIR/allowed-ips.conf"
 
-    # Check if already configured
+    # Remove any broken previous attempts
     if grep -q "$marker" "$after_rules" 2>/dev/null; then
-        log "Docker UFW integration already configured"
-        return
+        log "Removing previous Docker UFW integration..."
+        sed -i '/# BEGIN DOCKER-USER/,/# END DOCKER-USER/d' "$after_rules"
+    fi
+
+    # Ensure UFW forward policy is set
+    if grep -q 'DEFAULT_FORWARD_POLICY="DROP"' /etc/default/ufw; then
+        log "Enabling UFW forward policy..."
+        sed -i 's/DEFAULT_FORWARD_POLICY="DROP"/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
     fi
 
     # Backup the file
     cp "$after_rules" "${after_rules}.backup.$(date +%Y%m%d)" 2>/dev/null || true
 
-    # Add Docker-USER chain rules before the final COMMIT
-    # This makes Docker traffic go through ufw-user-forward chain
-    cat >> "$after_rules" << 'EOF'
+    # Build allowed IPs rules from config
+    local allowed_rules=""
+    if [[ -f "$allowed_ips_file" ]]; then
+        log "Reading allowed IPs from $allowed_ips_file..."
+        while IFS= read -r ip || [[ -n "$ip" ]]; do
+            [[ -z "$ip" || "$ip" =~ ^# ]] && continue
+            ip=$(echo "$ip" | xargs)
+            [[ -n "$ip" ]] && allowed_rules="${allowed_rules}-A FILTERS -s ${ip} -j RETURN
+"
+            log "  Allowing: $ip"
+        done < "$allowed_ips_file"
+    fi
+
+    # Add Docker-USER chain rules with FILTERS chain
+    cat >> "$after_rules" << EOFBLOCK
 
 # BEGIN DOCKER-USER UFW INTEGRATION
-# Route Docker container traffic through UFW
+# Block Docker container access except from allowed IPs
+# This runs BEFORE Docker's permissive rules
 *filter
 :DOCKER-USER - [0:0]
--A DOCKER-USER -j ufw-user-forward
+:FILTERS - [0:0]
+
+# Jump to our filters
+-A DOCKER-USER -j FILTERS
+
+# Allow established connections
+-A FILTERS -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+
+# Allow from localhost and private networks
+-A FILTERS -s 127.0.0.0/8 -j RETURN
+-A FILTERS -s 172.16.0.0/12 -j RETURN
+-A FILTERS -s 10.0.0.0/8 -j RETURN
+-A FILTERS -s 192.168.0.0/16 -j RETURN
+
+# Allow from configured IPs (from $allowed_ips_file)
+${allowed_rules}
+# Allow Docker internal networks
+-A FILTERS -i docker0 -j RETURN
+-A FILTERS -i br- -j RETURN
+
+# Default: drop everything else to containers
+-A FILTERS -j DROP
+
 -A DOCKER-USER -j RETURN
 COMMIT
 # END DOCKER-USER UFW INTEGRATION
-EOF
+EOFBLOCK
 
     log "Docker UFW integration added to $after_rules"
 
+    # Ensure UFW is enabled
+    if ! ufw status | grep -q "Status: active"; then
+        log "Enabling UFW..."
+        echo "y" | ufw enable
+    fi
+
     # Reload UFW to apply changes
-    if ufw status | grep -q "Status: active"; then
-        ufw reload
-        log "UFW reloaded"
+    ufw reload
+    log "UFW reloaded"
+
+    # Restart Docker to pick up new iptables rules
+    if systemctl is-active --quiet docker; then
+        log "Restarting Docker..."
+        systemctl restart docker
     fi
 }
 
