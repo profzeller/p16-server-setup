@@ -1,7 +1,7 @@
 {
-  "tag_name": "v1.5.2",
-  "name": "v1.5.2 - Fix DreamShaper XL Download URL",
-  "body": "## Bug Fix\n\nFixes 404 error when downloading DreamShaper XL model.\n\n### Changed\n- Updated DreamShaper XL URL from `Lykon/DreamShaper` to `Lykon/dreamshaper-xl-v2-turbo`\n- Affects both individual download and Versatile preset\n\n### How to Update\nIf you have an existing installation:\n```\nserver-setup > Tools & Monitoring > Update server-setup\n```",
+  "tag_name": "v1.5.3",
+  "name": "v1.5.3 - Fix Docker UFW Bypass",
+  "body": "## Security Fix\n\nFixes Docker bypassing UFW firewall rules, allowing connections from any IP.\n\n### The Problem\nDocker manipulates iptables directly, bypassing UFW. Even with UFW rules restricting access to specific IPs, Docker containers were accessible from anywhere.\n\n### The Fix\nAdds `DOCKER-USER` chain integration to route container traffic through UFW's forward rules.\n\n### Quick Fix for Existing Servers\nRun this on affected servers:\n```bash\ncurl -sSL https://raw.githubusercontent.com/profzeller/p16-server-setup/main/fix-docker-ufw.sh | sudo bash\n```\n\n### Verification\nAfter running, `iptables -L DOCKER-USER -n -v` should show:\n```\nChain DOCKER-USER\n  target: ufw-user-forward\n  target: RETURN\n```\n\n### Full Update\n```\nserver-setup > Tools & Monitoring > Update server-setup\n```",
   "draft": false,
   "prerelease": false
 }
