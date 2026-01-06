@@ -1388,7 +1388,7 @@ configure_comfyui() {
                     model_name="Realistic_Vision_V5.1.safetensors"
                     ;;
                 5)
-                    model_url="https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaperXL_Turbo_v2_1.safetensors"
+                    model_url="https://huggingface.co/Lykon/dreamshaper-xl-v2-turbo/resolve/main/DreamShaperXL_Turbo_v2_1.safetensors"
                     model_name="DreamShaperXL_Turbo_v2_1.safetensors"
                     ;;
                 6)
@@ -1742,7 +1742,7 @@ install_versatile_preset() {
 
     # Download DreamShaper XL
     download_model \
-        "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaperXL_Turbo_v2_1.safetensors" \
+        "https://huggingface.co/Lykon/dreamshaper-xl-v2-turbo/resolve/main/DreamShaperXL_Turbo_v2_1.safetensors" \
         "$dir/models/checkpoints/DreamShaperXL_Turbo_v2_1.safetensors" \
         "DreamShaper XL"
 
