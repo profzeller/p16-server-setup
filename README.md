@@ -4,6 +4,22 @@ Interactive terminal utility for configuring and managing Lenovo P16 laptops (RT
 
 Perfect for creating a rack of AI inference servers for local development.
 
+## Related Repositories
+
+This project is part of the P16 GPU Server ecosystem:
+
+| Repository | Description | Port |
+|------------|-------------|------|
+| [p16-server-setup](https://github.com/profzeller/p16-server-setup) | Main setup utility (this repo) | - |
+| [p16-iso-builder](https://github.com/profzeller/p16-iso-builder) | Create custom Ubuntu ISOs for automated deployment | - |
+| [local-ollama-server](https://github.com/profzeller/local-ollama-server) | LLM inference with Ollama (simple, good for dev) | 11434 |
+| [local-vllm-server](https://github.com/profzeller/local-vllm-server) | High-throughput LLM inference with vLLM | 8000 |
+| [local-chatterbox-server](https://github.com/profzeller/local-chatterbox-server) | Text-to-speech with voice cloning | 8100 |
+| [local-comfyui-server](https://github.com/profzeller/local-comfyui-server) | Image generation with SDXL/ComfyUI | 8188 |
+| [local-video-server](https://github.com/profzeller/local-video-server) | Video generation with Wan2.1 | 8200 |
+
+All AI services are installable directly from the server-setup menu (option 8).
+
 ## Features
 
 - **Interactive Menu System** - Full TUI for setup and management
