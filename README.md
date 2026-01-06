@@ -13,7 +13,7 @@ This project is part of the P16 GPU Server ecosystem:
 | [p16-server-setup](https://github.com/profzeller/p16-server-setup) | Main setup utility (this repo) | - |
 | [p16-iso-builder](https://github.com/profzeller/p16-iso-builder) | Create custom Ubuntu ISOs for automated deployment | - |
 | [p16-agent](https://github.com/profzeller/p16-agent) | Metrics collection agent for remote monitoring | 9100 |
-| [p16-monitor](https://github.com/profzeller/p16-monitor) | Web dashboard for monitoring all GPU servers | 3000 |
+| [p16-monitor](https://github.com/profzeller/p16-monitor) | Web dashboard for monitoring all GPU servers | 7000 |
 | [local-ollama-server](https://github.com/profzeller/local-ollama-server) | LLM inference with Ollama (simple, good for dev) | 11434 |
 | [local-vllm-server](https://github.com/profzeller/local-vllm-server) | High-throughput LLM inference with vLLM | 8000 |
 | [local-chatterbox-server](https://github.com/profzeller/local-chatterbox-server) | Text-to-speech with voice cloning | 8100 |
