@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.9.0"
+SCRIPT_VERSION="1.9.1"
 
 # ============================================
 # Colors and Formatting
@@ -2985,9 +2985,18 @@ gpu_dashboard() {
         power=$(echo "$power" | xargs | cut -d'.' -f1)
         power_limit=$(echo "$power_limit" | xargs | cut -d'.' -f1)
 
+        # Handle N/A values (some GPUs don't report power)
+        [[ "$power" == *"N/A"* ]] && power=""
+        [[ "$power_limit" == *"N/A"* ]] && power_limit=""
+        [[ "$temp" == *"N/A"* ]] && temp="0"
+        [[ "$util" == *"N/A"* ]] && util="0"
+
         # Calculate percentages
         local mem_percent=$((mem_used * 100 / mem_total))
-        local power_percent=$((power * 100 / power_limit))
+        local power_percent=0
+        if [ -n "$power" ] && [ -n "$power_limit" ] && [ "$power_limit" -gt 0 ] 2>/dev/null; then
+            power_percent=$((power * 100 / power_limit))
+        fi
 
         # Header
         echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
@@ -3028,13 +3037,15 @@ gpu_dashboard() {
         echo -e "    ${DIM}${mem_used} MB / ${mem_total} MB${NC}"
         echo ""
 
-        # Power
-        echo -e "  ${BOLD}Power:${NC}"
-        echo -n "    "
-        draw_bar "$power_percent" 35 "$(usage_color "$power_percent")"
-        echo ""
-        echo -e "    ${DIM}${power}W / ${power_limit}W${NC}"
-        echo ""
+        # Power (only show if available)
+        if [ -n "$power" ] && [ -n "$power_limit" ]; then
+            echo -e "  ${BOLD}Power:${NC}"
+            echo -n "    "
+            draw_bar "$power_percent" 35 "$(usage_color "$power_percent")"
+            echo ""
+            echo -e "    ${DIM}${power}W / ${power_limit}W${NC}"
+            echo ""
+        fi
 
         # Running Services
         echo -e "  ${BOLD}GPU Services:${NC}"
