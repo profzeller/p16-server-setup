@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.7.5"
+SCRIPT_VERSION="1.8.0"
 
 # ============================================
 # Colors and Formatting
@@ -1274,6 +1274,209 @@ SCRIPT
 # AI Services Functions
 # ============================================
 
+# Show service status with details
+show_service_status() {
+    local name="$1"
+    local container="$2"
+    local port="$3"
+
+    # Check container status
+    local status=$(docker ps --filter "name=$container" --format "{{.Status}}" 2>/dev/null)
+    local health=$(docker ps --filter "name=$container" --format "{{.Status}}" 2>/dev/null | grep -o "(healthy)\|(unhealthy)" || echo "")
+
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  $name Status${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
+
+    if [ -n "$status" ]; then
+        echo -e "  Container:  ${GREEN}Running${NC} $health"
+        echo -e "  Uptime:     $(echo "$status" | sed 's/ (healthy)//' | sed 's/ (unhealthy)//')"
+    else
+        echo -e "  Container:  ${RED}Stopped${NC}"
+    fi
+
+    local ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    echo -e "  Endpoint:   http://${ip}:${port}"
+    echo ""
+}
+
+# Ollama-specific status
+show_ollama_status() {
+    local container="ollama"
+    local port="11434"
+
+    show_service_status "Ollama" "$container" "$port"
+
+    # Get config from environment
+    local ctx=$(docker exec $container printenv OLLAMA_NUM_CTX 2>/dev/null || echo "default")
+    local parallel=$(docker exec $container printenv OLLAMA_NUM_PARALLEL 2>/dev/null || echo "default")
+    local flash=$(docker exec $container printenv OLLAMA_FLASH_ATTENTION 2>/dev/null || echo "0")
+
+    echo -e "  ${YELLOW}Configuration:${NC}"
+    echo -e "  Context Window:    $ctx tokens"
+    echo -e "  Parallel Requests: $parallel"
+    echo -e "  Flash Attention:   $([ "$flash" = "1" ] && echo "Enabled" || echo "Disabled")"
+    echo ""
+
+    # Get loaded models
+    echo -e "  ${YELLOW}Loaded Models:${NC}"
+    local loaded=$(curl -s http://localhost:$port/api/ps 2>/dev/null)
+    if [ -n "$loaded" ] && echo "$loaded" | grep -q "models"; then
+        echo "$loaded" | grep -oP '"name":"[^"]+"|"size":\d+|"parameter_size":"[^"]+"' | \
+            sed 's/"name":"/ ► /g' | sed 's/"size":/  Size: /g' | sed 's/"parameter_size":"/  Params: /g' | \
+            sed 's/"//g' || echo "  (none loaded)"
+    else
+        echo "  (none currently loaded)"
+    fi
+    echo ""
+
+    # Get installed models
+    echo -e "  ${YELLOW}Installed Models:${NC}"
+    docker exec $container ollama list 2>/dev/null | tail -n +2 | awk '{printf "  ► %-25s %s\n", $1, $2}' || echo "  (none)"
+    echo ""
+}
+
+# Chatterbox-specific status
+show_chatterbox_status() {
+    local container="chatterbox"
+    local port="8100"
+
+    show_service_status "Chatterbox TTS" "$container" "$port"
+
+    # Get health info from API
+    local health=$(curl -s http://localhost:$port/health 2>/dev/null)
+    if [ -n "$health" ]; then
+        local model_loaded=$(echo "$health" | grep -oP '"model_loaded":\s*(true|false)' | cut -d: -f2)
+        local cuda=$(echo "$health" | grep -oP '"cuda_available":\s*(true|false)' | cut -d: -f2)
+        local device=$(echo "$health" | grep -oP '"device":\s*"[^"]+"' | cut -d'"' -f4)
+
+        echo -e "  ${YELLOW}Model Status:${NC}"
+        echo -e "  Model Loaded:  $([ "$model_loaded" = "true" ] && echo "${GREEN}Yes${NC}" || echo "${YELLOW}No (loads on first request)${NC}")"
+        echo -e "  CUDA:          $([ "$cuda" = "true" ] && echo "${GREEN}Available${NC}" || echo "${RED}Not Available${NC}")"
+        echo -e "  Device:        $device"
+    else
+        echo -e "  ${RED}API not responding${NC}"
+    fi
+    echo ""
+
+    echo -e "  ${YELLOW}API Parameters:${NC}"
+    echo "  temperature:   0.7 (default)"
+    echo "  exaggeration:  1.0 (default, try 0.4-0.6 for smoother)"
+    echo "  cfg_weight:    0.5 (default)"
+    echo "  speed:         1.0 (default)"
+    echo ""
+}
+
+# Video Server-specific status
+show_video_status() {
+    local container="wan-video"
+    local port="8200"
+
+    show_service_status "Video Server" "$container" "$port"
+
+    # Get health info from API
+    local health=$(curl -s http://localhost:$port/health 2>/dev/null)
+    if [ -n "$health" ]; then
+        local model=$(echo "$health" | grep -oP '"model":\s*"[^"]+"' | cut -d'"' -f4)
+        local model_loaded=$(echo "$health" | grep -oP '"model_loaded":\s*(true|false)' | cut -d: -f2)
+        local cuda=$(echo "$health" | grep -oP '"cuda_available":\s*(true|false)' | cut -d: -f2)
+        local vram_used=$(echo "$health" | grep -oP '"vram_used_gb":\s*[0-9.]+' | cut -d: -f2)
+        local vram_total=$(echo "$health" | grep -oP '"vram_total_gb":\s*[0-9.]+' | cut -d: -f2)
+        local cpu_offload=$(echo "$health" | grep -oP '"cpu_offload":\s*(true|false)' | cut -d: -f2)
+
+        echo -e "  ${YELLOW}Model Status:${NC}"
+        echo -e "  Model:         $model"
+        echo -e "  Loaded:        $([ "$model_loaded" = "true" ] && echo "${GREEN}Yes${NC}" || echo "${YELLOW}No (loads on first request)${NC}")"
+        echo -e "  CUDA:          $([ "$cuda" = "true" ] && echo "${GREEN}Available${NC}" || echo "${RED}Not Available${NC}")"
+        echo -e "  VRAM:          ${vram_used}GB / ${vram_total}GB"
+        echo -e "  CPU Offload:   $([ "$cpu_offload" = "true" ] && echo "Enabled" || echo "Disabled")"
+    else
+        echo -e "  ${RED}API not responding${NC}"
+    fi
+    echo ""
+
+    echo -e "  ${YELLOW}Available Models:${NC}"
+    echo "  Wan-AI/Wan2.2-T2V-A14B  (Text-to-Video)"
+    echo "  Wan-AI/Wan2.2-I2V-A14B  (Image-to-Video) - default"
+    echo "  Wan-AI/Wan2.2-TI2V-5B   (Both, smaller)"
+    echo ""
+}
+
+# vLLM-specific status
+show_vllm_status() {
+    local container="vllm"
+    local port="8000"
+
+    show_service_status "vLLM" "$container" "$port"
+
+    # Get model from .env
+    local dir="$INSTALL_DIR/local-vllm-server"
+    if [ -f "$dir/.env" ]; then
+        local model=$(grep "^MODEL=" "$dir/.env" 2>/dev/null | cut -d= -f2)
+        local gpu_mem=$(grep "^GPU_MEMORY_UTILIZATION=" "$dir/.env" 2>/dev/null | cut -d= -f2)
+
+        echo -e "  ${YELLOW}Configuration:${NC}"
+        echo -e "  Model:            ${model:-not set}"
+        echo -e "  GPU Memory Util:  ${gpu_mem:-0.9}"
+    fi
+    echo ""
+}
+
+# ComfyUI-specific status
+show_comfyui_status() {
+    local container="comfyui"
+    local port="8188"
+
+    show_service_status "ComfyUI" "$container" "$port"
+
+    # List models
+    local dir="$INSTALL_DIR/local-comfyui-server"
+    if [ -d "$dir/models/checkpoints" ]; then
+        echo -e "  ${YELLOW}Installed Checkpoints:${NC}"
+        ls "$dir/models/checkpoints"/*.safetensors "$dir/models/checkpoints"/*.ckpt 2>/dev/null | \
+            xargs -I{} basename {} | head -5 | sed 's/^/  ► /' || echo "  (none)"
+    fi
+    echo ""
+}
+
+# View docker logs for a service
+view_service_logs() {
+    local container="$1"
+    local name="$2"
+
+    header "$name Logs"
+
+    echo "How would you like to view logs?"
+    echo ""
+    echo "  1) Last 50 lines (static)"
+    echo "  2) Last 100 lines (static)"
+    echo "  3) Follow live (Ctrl+C to stop)"
+    echo "  0) Cancel"
+    echo ""
+    read -p "Select option: " log_choice
+
+    case $log_choice in
+        1)
+            docker logs --tail 50 "$container" 2>&1 | less
+            ;;
+        2)
+            docker logs --tail 100 "$container" 2>&1 | less
+            ;;
+        3)
+            echo ""
+            echo "Following logs... Press Ctrl+C to stop"
+            echo ""
+            # Trap SIGINT to prevent script exit
+            trap 'echo ""; echo "Stopped following logs."; trap - INT; return 0' INT
+            docker logs --tail 20 -f "$container" 2>&1
+            trap - INT
+            ;;
+        0|"") return ;;
+    esac
+}
+
 # Configure vLLM model
 configure_vllm() {
     local dir="$INSTALL_DIR/local-vllm-server"
@@ -2159,21 +2362,44 @@ install_service() {
     local port="$3"
     local dir="local-${name}-server"
 
-    header "Installing $name"
+    # Map service name to container name
+    local container="$name"
+    case $name in
+        video) container="wan-video" ;;
+    esac
 
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
 
     if [ -d "$dir" ]; then
-        echo "Service already installed."
+        # Show service-specific status
+        case $name in
+            ollama) show_ollama_status ;;
+            chatterbox) show_chatterbox_status ;;
+            video) show_video_status ;;
+            vllm) show_vllm_status ;;
+            comfyui) show_comfyui_status ;;
+            *) show_service_status "$name" "$container" "$port" ;;
+        esac
+
+        echo -e "${YELLOW}Management Options:${NC}"
         echo ""
-        echo "Options:"
         echo "  1) Start service"
         echo "  2) Stop service"
-        echo "  3) Configure model"
-        echo "  4) Update (git pull)"
-        echo "  5) Reinstall"
-        echo "  0) Cancel"
+        echo "  3) Restart service"
+        echo ""
+        echo -e "${YELLOW}Configuration:${NC}"
+        echo ""
+        echo "  4) Configure model/settings"
+        echo "  5) View logs"
+        echo "  6) Open firewall port"
+        echo ""
+        echo -e "${YELLOW}Maintenance:${NC}"
+        echo ""
+        echo "  7) Update (git pull + rebuild)"
+        echo "  8) Reinstall (fresh clone)"
+        echo ""
+        echo "  0) Back"
         echo ""
         read -p "Select option: " svc_choice
 
@@ -2189,16 +2415,39 @@ install_service() {
                 log "$name stopped"
                 ;;
             3)
+                cd "$dir"
+                docker compose restart
+                log "$name restarted"
+                ;;
+            4)
                 case $name in
                     vllm) configure_vllm ;;
                     ollama) configure_ollama ;;
                     comfyui) configure_comfyui ;;
                     video) configure_video ;;
+                    chatterbox)
+                        echo ""
+                        echo "Chatterbox parameters are set per-request via API:"
+                        echo "  temperature:  0.7 (default)"
+                        echo "  exaggeration: 0.4-0.6 for smoother audio"
+                        echo "  cfg_weight:   0.5 (default)"
+                        echo "  speed:        1.0 (default)"
+                        echo ""
+                        echo "Use reference_audio_base64 for voice cloning."
+                        press_enter
+                        ;;
                     *) warn "Model configuration not available for $name" ;;
                 esac
                 return
                 ;;
-            4)
+            5)
+                view_service_logs "$container" "$name"
+                ;;
+            6)
+                open_docker_port "$port"
+                log "Port $port opened"
+                ;;
+            7)
                 cd "$dir"
                 git pull
                 docker compose down 2>/dev/null || true
@@ -2214,7 +2463,7 @@ install_service() {
                 docker compose up -d
                 log "$name updated"
                 ;;
-            5)
+            8)
                 cd "$dir"
                 docker compose down 2>/dev/null || true
                 # Remove old images to force fresh build
@@ -2240,6 +2489,8 @@ install_service() {
                 return
                 ;;
         esac
+
+        press_enter
     else
         log "Cloning repository..."
         git clone "$repo"
