@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.8.0"
+SCRIPT_VERSION="1.8.1"
 
 # ============================================
 # Colors and Formatting
@@ -2491,23 +2491,29 @@ install_service() {
         esac
 
         press_enter
-    else
-        log "Cloning repository..."
-        git clone "$repo"
-        cd "$dir"
-
-        # Special handling for ComfyUI
-        if [ "$name" = "comfyui" ]; then
-            mkdir -p models/checkpoints output input custom_nodes
-            warn "Download SDXL model to $INSTALL_DIR/$dir/models/checkpoints/"
-        fi
-
-        log "Starting $name..."
-        docker compose up -d
-        log "$name installed and started"
+        return
     fi
 
-    # Firewall prompt for Docker container port
+    # New installation
+    header "Installing $name"
+    log "Cloning repository..."
+    git clone "$repo"
+    cd "$dir"
+
+    # Special handling for ComfyUI
+    if [ "$name" = "comfyui" ]; then
+        mkdir -p models/checkpoints output input custom_nodes
+        warn "Download SDXL model to $INSTALL_DIR/$dir/models/checkpoints/"
+    fi
+
+    # Copy .env.example if exists
+    [ -f .env.example ] && cp .env.example .env
+
+    log "Starting $name..."
+    docker compose up -d
+    log "$name installed and started"
+
+    # Firewall prompt for Docker container port (new installs only)
     echo ""
     echo -e "${YELLOW}Firewall Configuration${NC}"
     echo "This service runs on port $port"
