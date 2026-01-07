@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.9.1"
+SCRIPT_VERSION="1.10.0"
 
 # ============================================
 # Colors and Formatting
@@ -191,6 +191,22 @@ get_service_status() {
     fi
 }
 
+get_cluster_status() {
+    local dir="$INSTALL_DIR/local-cluster-vllm"
+
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "vllm-cluster-head"; then
+        # Get worker count
+        local workers=$(docker exec vllm-cluster-head ray status 2>/dev/null | grep -oP '\d+ node' | grep -oP '\d+' || echo "?")
+        echo "${GREEN}Head :8000 (${workers} nodes)${NC}"
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "vllm-cluster-worker"; then
+        echo "${CYAN}Worker (connected)${NC}"
+    elif [ -d "$dir" ]; then
+        echo "${YELLOW}Installed${NC}"
+    else
+        echo "${DIM}Not installed${NC}"
+    fi
+}
+
 is_first_run() {
     [ ! -f "$MARKER_FILE" ]
 }
@@ -320,8 +336,11 @@ show_services_menu() {
         echo -e "  ${CYAN}5)${NC} Video Server         $(get_service_status video 8200)"
         echo -e "     ${DIM}Wan2.2 text-to-video and image-to-video${NC}"
         echo ""
-        echo -e "  ${YELLOW}6)${NC} List running services"
-        echo -e "  ${YELLOW}7)${NC} Stop all services"
+        echo -e "  ${MAGENTA}6)${NC} Cluster vLLM         $(get_cluster_status)"
+        echo -e "     ${DIM}Distributed LLM across multiple nodes${NC}"
+        echo ""
+        echo -e "  ${YELLOW}7)${NC} List running services"
+        echo -e "  ${YELLOW}8)${NC} Stop all services"
         echo ""
         echo -e "  ${RED}0)${NC} Back to main menu"
         echo ""
@@ -334,8 +353,9 @@ show_services_menu() {
             3) install_service "chatterbox" "https://github.com/profzeller/local-chatterbox-server.git" "8100" ;;
             4) install_service "comfyui" "https://github.com/profzeller/local-comfyui-server.git" "8188" ;;
             5) install_service "video" "https://github.com/profzeller/local-video-server.git" "8200" ;;
-            6) list_services ;;
-            7) stop_all_services ;;
+            6) install_cluster_vllm ;;
+            7) list_services ;;
+            8) stop_all_services ;;
             0|"") return ;;
             *) echo -e "${RED}Invalid option${NC}"; sleep 1 ;;
         esac
@@ -2673,7 +2693,399 @@ stop_all_services() {
         fi
     done
 
+    # Also stop cluster vLLM
+    if [ -d "$INSTALL_DIR/local-cluster-vllm" ]; then
+        echo "Stopping cluster vLLM..."
+        cd "$INSTALL_DIR/local-cluster-vllm"
+        docker compose -f docker-compose.head.yml down 2>/dev/null || true
+        docker compose -f docker-compose.worker.yml down 2>/dev/null || true
+    fi
+
     log "All services stopped"
+    press_enter
+}
+
+# ============================================
+# Cluster vLLM Functions
+# ============================================
+install_cluster_vllm() {
+    require_root || return
+
+    local repo="https://github.com/profzeller/local-cluster-vllm.git"
+    local dir="$INSTALL_DIR/local-cluster-vllm"
+    local port="8000"
+
+    mkdir -p "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+
+    if [ -d "$dir" ]; then
+        # Show cluster status
+        show_cluster_vllm_status
+
+        echo -e "${YELLOW}Management Options:${NC}"
+        echo ""
+        echo "  1) Start as Head Node"
+        echo "  2) Start as Worker Node"
+        echo "  3) Stop cluster node"
+        echo ""
+        echo -e "${YELLOW}Configuration:${NC}"
+        echo ""
+        echo "  4) Configure cluster settings"
+        echo "  5) View logs"
+        echo "  6) View cluster status"
+        echo ""
+        echo -e "${YELLOW}Maintenance:${NC}"
+        echo ""
+        echo "  7) Update (git pull + rebuild)"
+        echo "  8) Reinstall"
+        echo -e "  9) ${RED}Uninstall${NC}"
+        echo ""
+        echo "  0) Back"
+        echo ""
+        read -p "Select option: " choice
+
+        case $choice in
+            1)
+                cd "$dir"
+                if [ ! -f .env ]; then
+                    cp .env.example .env
+                fi
+                # Set as head
+                sed -i 's/^NODE_TYPE=.*/NODE_TYPE=head/' .env
+                echo ""
+                read -p "Pipeline parallel size (number of nodes in cluster) [4]: " pp_size
+                pp_size=${pp_size:-4}
+                sed -i "s/^PIPELINE_PARALLEL_SIZE=.*/PIPELINE_PARALLEL_SIZE=$pp_size/" .env
+
+                read -p "Model ID [meta-llama/Llama-3.1-70B-Instruct]: " model_id
+                model_id=${model_id:-meta-llama/Llama-3.1-70B-Instruct}
+                sed -i "s|^MODEL_ID=.*|MODEL_ID=$model_id|" .env
+
+                read -p "HuggingFace token (for gated models, or leave empty): " hf_token
+                if [ -n "$hf_token" ]; then
+                    sed -i "s/^HF_TOKEN=.*/HF_TOKEN=$hf_token/" .env
+                fi
+
+                log "Building head node..."
+                docker compose -f docker-compose.head.yml build
+                log "Starting head node..."
+                docker compose -f docker-compose.head.yml up -d
+
+                local ip=$(hostname -I | awk '{print $1}')
+                echo ""
+                log "Head node started!"
+                echo ""
+                echo -e "Workers should connect to: ${GREEN}$ip${NC}"
+                echo -e "API endpoint: ${CYAN}http://$ip:8000${NC}"
+                echo -e "Ray Dashboard: ${CYAN}http://$ip:8265${NC}"
+                ;;
+            2)
+                cd "$dir"
+                if [ ! -f .env ]; then
+                    cp .env.example .env
+                fi
+                # Set as worker
+                sed -i 's/^NODE_TYPE=.*/NODE_TYPE=worker/' .env
+                echo ""
+                read -p "Head node IP address: " head_ip
+                if [ -z "$head_ip" ]; then
+                    warn "Head IP is required for workers"
+                    press_enter
+                    return
+                fi
+                sed -i "s/^HEAD_IP=.*/HEAD_IP=$head_ip/" .env
+                # Uncomment HEAD_IP line if commented
+                sed -i 's/^# HEAD_IP=/HEAD_IP=/' .env
+
+                log "Building worker node..."
+                docker compose -f docker-compose.worker.yml build
+                log "Starting worker node..."
+                docker compose -f docker-compose.worker.yml up -d
+
+                log "Worker started! Connecting to head at $head_ip"
+                ;;
+            3)
+                cd "$dir"
+                docker compose -f docker-compose.head.yml down 2>/dev/null || true
+                docker compose -f docker-compose.worker.yml down 2>/dev/null || true
+                log "Cluster node stopped"
+                ;;
+            4)
+                configure_cluster_vllm
+                return
+                ;;
+            5)
+                if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "vllm-cluster-head"; then
+                    view_service_logs "vllm-cluster-head" "Cluster vLLM Head"
+                elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "vllm-cluster-worker"; then
+                    view_service_logs "vllm-cluster-worker" "Cluster vLLM Worker"
+                else
+                    warn "No cluster node running"
+                fi
+                ;;
+            6)
+                show_cluster_vllm_detail_status
+                ;;
+            7)
+                cd "$dir"
+                docker compose -f docker-compose.head.yml down 2>/dev/null || true
+                docker compose -f docker-compose.worker.yml down 2>/dev/null || true
+                git pull
+                docker compose -f docker-compose.head.yml build --no-cache
+                log "Updated. Restart as head or worker to apply changes."
+                ;;
+            8)
+                cd "$dir"
+                docker compose -f docker-compose.head.yml down 2>/dev/null || true
+                docker compose -f docker-compose.worker.yml down 2>/dev/null || true
+                cd ..
+                rm -rf "$dir"
+                git clone "$repo"
+                cd "$dir"
+                cp .env.example .env
+                docker compose -f docker-compose.head.yml build --no-cache
+                log "Reinstalled"
+                ;;
+            9)
+                echo ""
+                if confirm "Uninstall Cluster vLLM?" "n"; then
+                    cd "$dir"
+                    docker compose -f docker-compose.head.yml down --rmi all 2>/dev/null || true
+                    docker compose -f docker-compose.worker.yml down --rmi all 2>/dev/null || true
+                    cd ..
+                    rm -rf "$dir"
+                    log "Cluster vLLM uninstalled"
+                fi
+                ;;
+            0|"") return ;;
+        esac
+        press_enter
+        return
+    fi
+
+    # New installation
+    header "Cluster vLLM Setup"
+
+    echo "Cluster vLLM enables distributed LLM inference across multiple GPU nodes."
+    echo ""
+    echo "Capacity with P16 laptops (16GB VRAM each):"
+    echo "  • 4 nodes (64GB): Llama 70B (AWQ quantized)"
+    echo "  • 8 nodes (128GB): Llama 70B (fp16)"
+    echo "  • 16 nodes (256GB): Llama 405B (AWQ quantized)"
+    echo ""
+
+    if ! confirm "Install Cluster vLLM?" "y"; then
+        return
+    fi
+
+    log "Cloning repository..."
+    git clone "$repo"
+    cd "$dir"
+    cp .env.example .env
+
+    echo ""
+    echo "What role will this node have?"
+    echo "  1) Head Node (API endpoint, first node in cluster)"
+    echo "  2) Worker Node (joins existing cluster)"
+    echo ""
+    read -p "Select role [1]: " role
+    role=${role:-1}
+
+    if [ "$role" = "1" ]; then
+        sed -i 's/^NODE_TYPE=.*/NODE_TYPE=head/' .env
+        echo ""
+        read -p "Pipeline parallel size (number of nodes) [4]: " pp_size
+        pp_size=${pp_size:-4}
+        sed -i "s/^PIPELINE_PARALLEL_SIZE=.*/PIPELINE_PARALLEL_SIZE=$pp_size/" .env
+
+        log "Building head node..."
+        docker compose -f docker-compose.head.yml build
+
+        echo ""
+        if confirm "Start head node now?" "y"; then
+            docker compose -f docker-compose.head.yml up -d
+            local ip=$(hostname -I | awk '{print $1}')
+            log "Head node started!"
+            echo ""
+            echo -e "Workers should connect to: ${GREEN}$ip${NC}"
+        fi
+    else
+        sed -i 's/^NODE_TYPE=.*/NODE_TYPE=worker/' .env
+        echo ""
+        read -p "Head node IP address: " head_ip
+        sed -i "s/^HEAD_IP=.*/HEAD_IP=$head_ip/" .env
+        sed -i 's/^# HEAD_IP=/HEAD_IP=/' .env
+
+        log "Building worker node..."
+        docker compose -f docker-compose.worker.yml build
+
+        echo ""
+        if confirm "Start worker node now?" "y"; then
+            docker compose -f docker-compose.worker.yml up -d
+            log "Worker started! Connecting to $head_ip"
+        fi
+    fi
+
+    # Firewall
+    echo ""
+    if confirm "Open cluster ports in firewall? (6379, 8000, 8265, 10001-10100)" "y"; then
+        for p in 6379 8000 8265; do
+            open_docker_port "$p"
+        done
+        ufw allow 10001:10100/tcp 2>/dev/null || true
+        log "Firewall ports opened"
+    fi
+
+    press_enter
+}
+
+show_cluster_vllm_status() {
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  Cluster vLLM Status${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
+
+    local dir="$INSTALL_DIR/local-cluster-vllm"
+    local ip=$(hostname -I | awk '{print $1}')
+
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "vllm-cluster-head"; then
+        echo -e "  Role:      ${GREEN}Head Node${NC}"
+        echo -e "  Container: ${GREEN}Running${NC}"
+        echo -e "  API:       http://$ip:8000"
+        echo -e "  Dashboard: http://$ip:8265"
+
+        # Get node count from Ray
+        local nodes=$(docker exec vllm-cluster-head ray status 2>/dev/null | grep -oP '\d+ node' | grep -oP '\d+' || echo "?")
+        echo -e "  Nodes:     $nodes"
+
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "vllm-cluster-worker"; then
+        echo -e "  Role:      ${CYAN}Worker Node${NC}"
+        echo -e "  Container: ${GREEN}Running${NC}"
+
+        # Get head IP from env
+        if [ -f "$dir/.env" ]; then
+            local head_ip=$(grep "^HEAD_IP=" "$dir/.env" | cut -d= -f2)
+            echo -e "  Head Node: $head_ip"
+        fi
+    else
+        echo -e "  Container: ${RED}Stopped${NC}"
+    fi
+
+    # Show config
+    if [ -f "$dir/.env" ]; then
+        local model=$(grep "^MODEL_ID=" "$dir/.env" | cut -d= -f2)
+        local pp_size=$(grep "^PIPELINE_PARALLEL_SIZE=" "$dir/.env" | cut -d= -f2)
+        echo ""
+        echo -e "  ${YELLOW}Configuration:${NC}"
+        echo -e "  Model:     ${model:-not set}"
+        echo -e "  PP Size:   ${pp_size:-4}"
+    fi
+    echo ""
+}
+
+show_cluster_vllm_detail_status() {
+    header "Cluster vLLM Status"
+
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "vllm-cluster-head"; then
+        echo "Ray Cluster Status:"
+        echo ""
+        docker exec vllm-cluster-head ray status 2>/dev/null || echo "Could not get Ray status"
+        echo ""
+
+        echo "vLLM API:"
+        local ip=$(hostname -I | awk '{print $1}')
+        curl -s "http://localhost:8000/v1/models" 2>/dev/null | head -20 || echo "API not responding"
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "vllm-cluster-worker"; then
+        echo "This is a worker node."
+        echo "Check status from the head node."
+    else
+        echo "No cluster node running."
+    fi
+
+    press_enter
+}
+
+configure_cluster_vllm() {
+    local dir="$INSTALL_DIR/local-cluster-vllm"
+
+    header "Configure Cluster vLLM"
+
+    if [ ! -f "$dir/.env" ]; then
+        warn "No .env file found"
+        press_enter
+        return
+    fi
+
+    echo "Current configuration:"
+    echo ""
+    grep -E "^(NODE_TYPE|HEAD_IP|MODEL_ID|PIPELINE_PARALLEL_SIZE|QUANTIZATION|MAX_MODEL_LEN)=" "$dir/.env" | \
+        sed 's/^/  /'
+    echo ""
+
+    echo "Edit configuration:"
+    echo "  1) Change model"
+    echo "  2) Change pipeline parallel size"
+    echo "  3) Change quantization"
+    echo "  4) Change max context length"
+    echo "  5) Set HuggingFace token"
+    echo "  6) Edit .env file directly"
+    echo "  0) Back"
+    echo ""
+    read -p "Select option: " choice
+
+    case $choice in
+        1)
+            echo ""
+            echo "Recommended models:"
+            echo "  meta-llama/Llama-3.1-70B-Instruct"
+            echo "  meta-llama/Llama-3.1-405B-Instruct"
+            echo "  Qwen/Qwen2.5-72B-Instruct"
+            echo "  mistralai/Mixtral-8x22B-Instruct-v0.1"
+            echo ""
+            read -p "Model ID: " model_id
+            if [ -n "$model_id" ]; then
+                sed -i "s|^MODEL_ID=.*|MODEL_ID=$model_id|" "$dir/.env"
+                log "Model updated to $model_id"
+            fi
+            ;;
+        2)
+            read -p "Pipeline parallel size (number of nodes): " pp_size
+            if [ -n "$pp_size" ]; then
+                sed -i "s/^PIPELINE_PARALLEL_SIZE=.*/PIPELINE_PARALLEL_SIZE=$pp_size/" "$dir/.env"
+                log "Pipeline parallel size updated to $pp_size"
+            fi
+            ;;
+        3)
+            echo ""
+            echo "Quantization options:"
+            echo "  (empty) - Full precision (fp16/bf16)"
+            echo "  awq     - AWQ 4-bit (recommended)"
+            echo "  gptq    - GPTQ 4-bit"
+            echo ""
+            read -p "Quantization: " quant
+            sed -i "s/^QUANTIZATION=.*/QUANTIZATION=$quant/" "$dir/.env"
+            log "Quantization updated"
+            ;;
+        4)
+            read -p "Max context length [4096]: " ctx
+            ctx=${ctx:-4096}
+            sed -i "s/^MAX_MODEL_LEN=.*/MAX_MODEL_LEN=$ctx/" "$dir/.env"
+            log "Max context length updated to $ctx"
+            ;;
+        5)
+            read -p "HuggingFace token: " hf_token
+            sed -i "s/^HF_TOKEN=.*/HF_TOKEN=$hf_token/" "$dir/.env"
+            log "HuggingFace token updated"
+            ;;
+        6)
+            ${EDITOR:-nano} "$dir/.env"
+            ;;
+        0|"") return ;;
+    esac
+
+    echo ""
+    warn "Restart the cluster node for changes to take effect"
     press_enter
 }
 
