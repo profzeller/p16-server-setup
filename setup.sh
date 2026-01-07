@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.7.2"
+SCRIPT_VERSION="1.7.3"
 
 # ============================================
 # Colors and Formatting
@@ -2131,15 +2131,30 @@ install_service() {
                 cd "$dir"
                 git pull
                 docker compose down 2>/dev/null || true
+                # Rebuild if Dockerfile exists (picks up code changes)
+                if [ -f Dockerfile ] || [ -f */Dockerfile ]; then
+                    log "Rebuilding container..."
+                    docker compose build --no-cache
+                fi
                 docker compose up -d
                 log "$name updated"
                 ;;
             5)
+                cd "$dir"
+                docker compose down 2>/dev/null || true
+                # Remove old images to force fresh build
+                docker compose rm -f 2>/dev/null || true
+                cd ..
                 rm -rf "$dir"
                 git clone "$repo"
                 cd "$dir"
                 # Copy .env.example if exists
                 [ -f .env.example ] && cp .env.example .env
+                # Build from scratch
+                if [ -f Dockerfile ] || [ -f */Dockerfile ]; then
+                    log "Building container..."
+                    docker compose build --no-cache
+                fi
                 docker compose up -d
                 log "$name reinstalled"
                 ;;
