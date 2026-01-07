@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.8.2"
+SCRIPT_VERSION="1.9.0"
 
 # ============================================
 # Colors and Formatting
@@ -2580,15 +2580,81 @@ install_service() {
 }
 
 list_services() {
-    header "Running GPU Services"
+    clear
 
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | \
-        grep -E "(NAME|ollama|vllm|chatterbox|comfyui|video|p16-agent)" || echo "No GPU services running"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}              ${BOLD}GPU Services Dashboard${NC}                        ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Service definitions: name, container, port
+    local services=(
+        "Ollama LLM:ollama:11434"
+        "Chatterbox TTS:chatterbox:8100"
+        "Video Server:wan-video:8200"
+        "vLLM:vllm:8000"
+        "ComfyUI:comfyui:8188"
+        "P16 Agent:p16-agent:9100"
+    )
+
+    local ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+
+    printf "  ${BOLD}%-18s %-12s %-10s %s${NC}\n" "SERVICE" "STATUS" "PORT" "ENDPOINT"
+    echo -e "  ${DIM}─────────────────────────────────────────────────────────${NC}"
+
+    for svc_info in "${services[@]}"; do
+        IFS=':' read -r name container port <<< "$svc_info"
+        local status=$(docker ps --filter "name=^${container}$" --format "{{.Status}}" 2>/dev/null)
+
+        if [ -n "$status" ]; then
+            local indicator="${GREEN}●${NC}"
+            local status_text="Running"
+            if echo "$status" | grep -q "(healthy)"; then
+                indicator="${GREEN}●${NC}"
+                status_text="${GREEN}Healthy${NC}"
+            elif echo "$status" | grep -q "(unhealthy)"; then
+                indicator="${RED}●${NC}"
+                status_text="${RED}Unhealthy${NC}"
+            else
+                indicator="${YELLOW}●${NC}"
+                status_text="${YELLOW}Starting${NC}"
+            fi
+            printf "  $indicator %-16s %-18b %-10s %s\n" "$name" "$status_text" "$port" "http://${ip}:${port}"
+        else
+            # Check if installed but not running
+            local dir_name="local-$(echo "$container" | sed 's/wan-//')-server"
+            if [ "$container" = "p16-agent" ]; then
+                dir_name="p16-agent"
+            fi
+            if [ -d "$INSTALL_DIR/$dir_name" ]; then
+                printf "  ${RED}○${NC} %-16s ${DIM}%-18s${NC} %-10s %s\n" "$name" "Stopped" "$port" "-"
+            else
+                printf "  ${DIM}○ %-16s %-18s %-10s %s${NC}\n" "$name" "Not installed" "$port" "-"
+            fi
+        fi
+    done
 
     echo ""
-    echo "GPU Status:"
-    nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | \
-        awk -F',' '{printf "  %s | Temp: %s°C | Util: %s%% | VRAM: %s/%s MB\n", $1, $2, $3, $4, $5}' || echo "  GPU not available"
+
+    # GPU Quick Status
+    echo -e "  ${BOLD}${CYAN}GPU Quick Status${NC}"
+    echo -e "  ${DIM}─────────────────────────────────────────────────────────${NC}"
+    local gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null)
+    if [ -n "$gpu_info" ]; then
+        IFS=',' read -r gpu_name temp util mem_used mem_total <<< "$gpu_info"
+        temp=$(echo "$temp" | xargs)
+        util=$(echo "$util" | xargs)
+        mem_used=$(echo "$mem_used" | xargs)
+        mem_total=$(echo "$mem_total" | xargs)
+        local mem_percent=$((mem_used * 100 / mem_total))
+
+        local t_color=$(temp_color "$temp")
+        echo -e "  $(echo "$gpu_name" | xargs)"
+        echo -e "  Temp: ${t_color}${temp}°C${NC} | VRAM: $(usage_color "$mem_percent")${mem_percent}%${NC} (${mem_used}/${mem_total} MB) | Util: $(usage_color "$util")${util}%${NC}"
+    else
+        echo -e "  ${RED}GPU not available${NC}"
+    fi
+    echo ""
 
     press_enter
 }
@@ -2724,30 +2790,288 @@ install_agent() {
 # ============================================
 run_server_status() {
     clear
+
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}              ${BOLD}Server Status Dashboard${NC}                       ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    if command -v server-status &>/dev/null; then
-        server-status
+
+    # GPU Status
+    echo -e "  ${BOLD}${CYAN}GPU${NC}"
+    echo -e "  ${DIM}───────────────────────────────────────────────────────${NC}"
+    local gpu_info=$(nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null)
+    if [ -n "$gpu_info" ]; then
+        IFS=',' read -r gpu_name temp util mem_used mem_total <<< "$gpu_info"
+        gpu_name=$(echo "$gpu_name" | xargs)
+        temp=$(echo "$temp" | xargs)
+        util=$(echo "$util" | xargs)
+        mem_used=$(echo "$mem_used" | xargs)
+        mem_total=$(echo "$mem_total" | xargs)
+        local mem_percent=$((mem_used * 100 / mem_total))
+
+        echo -e "  $gpu_name"
+        echo -n "  Temp: "
+        if [ "$temp" -lt 50 ]; then
+            echo -e "${GREEN}${temp}°C${NC}"
+        elif [ "$temp" -lt 70 ]; then
+            echo -e "${YELLOW}${temp}°C${NC}"
+        else
+            echo -e "${RED}${temp}°C${NC}"
+        fi
+        echo -n "  VRAM: "
+        draw_bar "$mem_percent" 25 "$(usage_color "$mem_percent")"
+        echo -e " ${DIM}(${mem_used}/${mem_total} MB)${NC}"
+        echo -n "  Util: "
+        draw_bar "$util" 25 "$(usage_color "$util")"
+        echo ""
     else
-        echo "=== GPU Status ==="
-        nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | \
-            awk -F',' '{printf "GPU: %s | Temp: %s°C | Util: %s%% | VRAM: %s/%s MB\n", $1, $2, $3, $4, $5}' || echo "GPU not available"
-        echo ""
-        echo "=== Docker Containers ==="
-        docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "Docker not running"
-        echo ""
-        echo "=== System Resources ==="
-        free -h | grep Mem | awk '{printf "RAM: %s used / %s total\n", $3, $2}'
-        df -h / | tail -1 | awk '{printf "Disk: %s used / %s total (%s)\n", $3, $2, $5}'
+        echo -e "  ${RED}GPU not available${NC}"
     fi
+    echo ""
+
+    # Services
+    echo -e "  ${BOLD}${CYAN}GPU Services${NC}"
+    echo -e "  ${DIM}───────────────────────────────────────────────────────${NC}"
+    local has_services=false
+    for svc in ollama chatterbox wan-video vllm comfyui; do
+        local status=$(docker ps --filter "name=$svc" --format "{{.Status}}" 2>/dev/null)
+        if [ -n "$status" ]; then
+            has_services=true
+            local health=""
+            if echo "$status" | grep -q "(healthy)"; then
+                health="${GREEN}●${NC}"
+            elif echo "$status" | grep -q "(unhealthy)"; then
+                health="${RED}●${NC}"
+            else
+                health="${YELLOW}●${NC}"
+            fi
+            printf "  $health %-15s %s\n" "$svc" "$(echo "$status" | sed 's/(healthy)//' | sed 's/(unhealthy)//')"
+        fi
+    done
+    if [ "$has_services" = false ]; then
+        echo -e "  ${DIM}(no GPU services running)${NC}"
+    fi
+    echo ""
+
+    # System Resources
+    echo -e "  ${BOLD}${CYAN}System Resources${NC}"
+    echo -e "  ${DIM}───────────────────────────────────────────────────────${NC}"
+
+    # RAM
+    local ram_info=$(free -m | grep Mem)
+    local ram_total=$(echo "$ram_info" | awk '{print $2}')
+    local ram_used=$(echo "$ram_info" | awk '{print $3}')
+    local ram_percent=$((ram_used * 100 / ram_total))
+    echo -n "  RAM:  "
+    draw_bar "$ram_percent" 25 "$(usage_color "$ram_percent")"
+    echo -e " ${DIM}(${ram_used}/${ram_total} MB)${NC}"
+
+    # Disk
+    local disk_info=$(df -m / | tail -1)
+    local disk_total=$(echo "$disk_info" | awk '{print $2}')
+    local disk_used=$(echo "$disk_info" | awk '{print $3}')
+    local disk_percent=$((disk_used * 100 / disk_total))
+    echo -n "  Disk: "
+    draw_bar "$disk_percent" 25 "$(usage_color "$disk_percent")"
+    echo -e " ${DIM}($(numfmt --to=iec $((disk_used * 1024 * 1024)))/$(numfmt --to=iec $((disk_total * 1024 * 1024))))${NC}"
+
+    # CPU Load
+    local load=$(cat /proc/loadavg 2>/dev/null | awk '{print $1}')
+    local cores=$(nproc 2>/dev/null || echo 1)
+    local load_percent=$(echo "$load $cores" | awk '{printf "%.0f", ($1 / $2) * 100}')
+    echo -n "  CPU:  "
+    draw_bar "$load_percent" 25 "$(usage_color "$load_percent")"
+    echo -e " ${DIM}(load: $load)${NC}"
+
+    echo ""
+
+    # Network
+    echo -e "  ${BOLD}${CYAN}Network${NC}"
+    echo -e "  ${DIM}───────────────────────────────────────────────────────${NC}"
+    local ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    echo -e "  IP: ${GREEN}$ip${NC}"
+    echo -e "  Hostname: $(hostname)"
+    echo ""
+
     press_enter
 }
 
 run_gpu_monitor() {
     clear
-    echo "GPU Monitor (press Ctrl+C to exit)"
     echo ""
-    watch -n 1 nvidia-smi 2>/dev/null || nvidia-smi
+    echo "Select GPU monitor mode:"
+    echo ""
+    echo "  1) Dashboard (colorful, refreshes every 2s)"
+    echo "  2) Classic nvidia-smi (refreshes every 1s)"
+    echo "  3) GPU Processes (what's using the GPU)"
+    echo "  0) Cancel"
+    echo ""
+    read -p "Select option [1]: " monitor_choice
+    monitor_choice=${monitor_choice:-1}
+
+    case $monitor_choice in
+        1) gpu_dashboard ;;
+        2) watch -n 1 nvidia-smi 2>/dev/null || nvidia-smi ;;
+        3) gpu_processes ;;
+        0|"") return ;;
+    esac
     press_enter
+}
+
+# Colorful progress bar
+draw_bar() {
+    local percent=$1
+    local width=${2:-30}
+    local color=$3
+
+    local filled=$((percent * width / 100))
+    local empty=$((width - filled))
+
+    printf "${color}"
+    printf "["
+    for ((i=0; i<filled; i++)); do printf "█"; done
+    for ((i=0; i<empty; i++)); do printf "░"; done
+    printf "]${NC} %3d%%" "$percent"
+}
+
+# Get color based on temperature
+temp_color() {
+    local temp=$1
+    if [ "$temp" -lt 50 ]; then
+        echo "$GREEN"
+    elif [ "$temp" -lt 70 ]; then
+        echo "$YELLOW"
+    else
+        echo "$RED"
+    fi
+}
+
+# Get color based on usage percentage
+usage_color() {
+    local usage=$1
+    if [ "$usage" -lt 50 ]; then
+        echo "$GREEN"
+    elif [ "$usage" -lt 80 ]; then
+        echo "$YELLOW"
+    else
+        echo "$RED"
+    fi
+}
+
+gpu_dashboard() {
+    trap 'return 0' INT
+
+    while true; do
+        clear
+
+        # Get GPU info
+        local gpu_info=$(nvidia-smi --query-gpu=name,driver_version,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null)
+
+        if [ -z "$gpu_info" ]; then
+            echo -e "${RED}GPU not available${NC}"
+            sleep 2
+            continue
+        fi
+
+        IFS=',' read -r gpu_name driver_ver temp util mem_used mem_total power power_limit <<< "$gpu_info"
+
+        # Trim whitespace
+        gpu_name=$(echo "$gpu_name" | xargs)
+        driver_ver=$(echo "$driver_ver" | xargs)
+        temp=$(echo "$temp" | xargs)
+        util=$(echo "$util" | xargs)
+        mem_used=$(echo "$mem_used" | xargs)
+        mem_total=$(echo "$mem_total" | xargs)
+        power=$(echo "$power" | xargs | cut -d'.' -f1)
+        power_limit=$(echo "$power_limit" | xargs | cut -d'.' -f1)
+
+        # Calculate percentages
+        local mem_percent=$((mem_used * 100 / mem_total))
+        local power_percent=$((power * 100 / power_limit))
+
+        # Header
+        echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}              ${BOLD}GPU Dashboard${NC}                                ${CYAN}║${NC}"
+        echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+
+        # GPU Info
+        echo -e "  ${BOLD}GPU:${NC}     $gpu_name"
+        echo -e "  ${BOLD}Driver:${NC}  $driver_ver"
+        echo ""
+
+        # Temperature
+        local t_color=$(temp_color "$temp")
+        echo -e "  ${BOLD}Temperature:${NC}"
+        echo -e "    ${t_color}${temp}°C${NC}"
+        if [ "$temp" -lt 50 ]; then
+            echo -e "    ${GREEN}◉ Cool${NC}"
+        elif [ "$temp" -lt 70 ]; then
+            echo -e "    ${YELLOW}◉ Warm${NC}"
+        else
+            echo -e "    ${RED}◉ Hot!${NC}"
+        fi
+        echo ""
+
+        # GPU Utilization
+        echo -e "  ${BOLD}GPU Utilization:${NC}"
+        echo -n "    "
+        draw_bar "$util" 35 "$(usage_color "$util")"
+        echo ""
+        echo ""
+
+        # VRAM Usage
+        echo -e "  ${BOLD}VRAM Usage:${NC}"
+        echo -n "    "
+        draw_bar "$mem_percent" 35 "$(usage_color "$mem_percent")"
+        echo ""
+        echo -e "    ${DIM}${mem_used} MB / ${mem_total} MB${NC}"
+        echo ""
+
+        # Power
+        echo -e "  ${BOLD}Power:${NC}"
+        echo -n "    "
+        draw_bar "$power_percent" 35 "$(usage_color "$power_percent")"
+        echo ""
+        echo -e "    ${DIM}${power}W / ${power_limit}W${NC}"
+        echo ""
+
+        # Running Services
+        echo -e "  ${BOLD}GPU Services:${NC}"
+        local services=$(docker ps --format "{{.Names}}" 2>/dev/null | grep -E "ollama|chatterbox|video|vllm|comfyui" || echo "")
+        if [ -n "$services" ]; then
+            while IFS= read -r svc; do
+                echo -e "    ${GREEN}●${NC} $svc"
+            done <<< "$services"
+        else
+            echo -e "    ${DIM}(none running)${NC}"
+        fi
+        echo ""
+
+        echo -e "${DIM}Press Ctrl+C to exit | Refreshing every 2s${NC}"
+
+        sleep 2
+    done
+
+    trap - INT
+}
+
+gpu_processes() {
+    clear
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}              ${BOLD}GPU Processes${NC}                                 ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    nvidia-smi --query-compute-apps=pid,name,used_memory --format=csv,noheader 2>/dev/null | \
+        awk -F',' '{printf "  PID: %-8s Memory: %-10s %s\n", $1, $3, $2}' || echo "  No GPU processes running"
+
+    echo ""
+    echo -e "${BOLD}Docker containers using GPU:${NC}"
+    echo ""
+    docker ps --filter "label=com.docker.compose.service" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null | \
+        head -10 || echo "  None"
+    echo ""
 }
 
 run_test_setup() {
