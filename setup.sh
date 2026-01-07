@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.7.3"
+SCRIPT_VERSION="1.7.4"
 
 # ============================================
 # Colors and Formatting
@@ -1738,6 +1738,76 @@ install_comfyui_preset() {
     esac
 }
 
+configure_video() {
+    local dir="$INSTALL_DIR/local-video-server"
+    local compose_file="$dir/docker-compose.yml"
+
+    header "Configure Video Server Model"
+
+    if [ ! -d "$dir" ]; then
+        warn "Video server not installed. Install it first."
+        press_enter
+        return
+    fi
+
+    # Get current model
+    local current_model=$(grep "MODEL_ID=" "$compose_file" 2>/dev/null | grep -v "^#" | cut -d= -f2 | tr -d '"' | head -1)
+    echo "Current model: ${current_model:-Not set}"
+    echo ""
+
+    echo -e "${YELLOW}Available Wan2.2 Models:${NC}"
+    echo ""
+    echo "  1) Wan2.2-T2V-A14B (Text-to-Video, 14B params)"
+    echo "     Best quality, needs CPU offload for 16GB VRAM"
+    echo ""
+    echo "  2) Wan2.2-I2V-A14B (Image-to-Video, 14B params)"
+    echo "     Animate images, needs CPU offload for 16GB VRAM"
+    echo ""
+    echo "  3) Wan2.2-TI2V-5B (Text/Image-to-Video, 5B params)"
+    echo "     Smaller model, easier on VRAM"
+    echo ""
+    echo "  4) Wan2.1-T2V-14B (Legacy Text-to-Video)"
+    echo "     Older version"
+    echo ""
+    echo "  0) Cancel"
+    echo ""
+    read -p "Select model: " model_choice
+
+    local new_model=""
+    case $model_choice in
+        1) new_model="Wan-AI/Wan2.2-T2V-A14B" ;;
+        2) new_model="Wan-AI/Wan2.2-I2V-A14B" ;;
+        3) new_model="Wan-AI/Wan2.2-TI2V-5B" ;;
+        4) new_model="Wan-AI/Wan2.1-T2V-14B" ;;
+        0|"") return ;;
+        *) warn "Invalid option"; press_enter; return ;;
+    esac
+
+    log "Setting model to: $new_model"
+
+    # Update docker-compose.yml
+    if grep -q "MODEL_ID=" "$compose_file"; then
+        sed -i "s|MODEL_ID=.*|MODEL_ID=$new_model|" "$compose_file"
+    else
+        # Add MODEL_ID if not present
+        sed -i "/ENABLE_CPU_OFFLOAD/a\\      - MODEL_ID=$new_model" "$compose_file"
+    fi
+
+    log "Model updated in docker-compose.yml"
+    echo ""
+
+    if confirm "Restart video server to apply changes?" "y"; then
+        cd "$dir"
+        docker compose down 2>/dev/null || true
+        docker compose up -d
+        log "Video server restarted with new model"
+        echo ""
+        warn "Note: First request will download the new model (~20GB)"
+    fi
+
+    press_enter
+}
+
 # Download helper function
 download_model() {
     local url="$1"
@@ -2123,6 +2193,7 @@ install_service() {
                     vllm) configure_vllm ;;
                     ollama) configure_ollama ;;
                     comfyui) configure_comfyui ;;
+                    video) configure_video ;;
                     *) warn "Model configuration not available for $name" ;;
                 esac
                 return
