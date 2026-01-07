@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.8.1"
+SCRIPT_VERSION="1.8.2"
 
 # ============================================
 # Colors and Formatting
@@ -2398,6 +2398,7 @@ install_service() {
         echo ""
         echo "  7) Update (git pull + rebuild)"
         echo "  8) Reinstall (fresh clone)"
+        echo -e "  9) ${RED}Uninstall (remove completely)${NC}"
         echo ""
         echo "  0) Back"
         echo ""
@@ -2484,6 +2485,55 @@ install_service() {
                 fi
                 docker compose up -d
                 log "$name reinstalled"
+                ;;
+            9)
+                echo ""
+                echo -e "${RED}WARNING: This will completely remove $name${NC}"
+                echo ""
+                echo "This will:"
+                echo "  • Stop and remove the container"
+                echo "  • Delete the installation directory ($INSTALL_DIR/$dir)"
+                echo "  • Optionally remove Docker images and volumes"
+                echo ""
+                if ! confirm "Are you sure you want to uninstall $name?" "n"; then
+                    return
+                fi
+
+                cd "$dir"
+
+                # Stop and remove containers
+                log "Stopping $name..."
+                docker compose down 2>/dev/null || true
+                docker compose rm -f 2>/dev/null || true
+
+                # Ask about removing images
+                echo ""
+                if confirm "Remove Docker images? (frees disk space)" "y"; then
+                    log "Removing Docker images..."
+                    docker compose down --rmi all 2>/dev/null || true
+                fi
+
+                # Ask about removing volumes
+                if confirm "Remove Docker volumes? (deletes downloaded models)" "n"; then
+                    log "Removing Docker volumes..."
+                    docker compose down -v 2>/dev/null || true
+                fi
+
+                # Remove directory
+                cd "$INSTALL_DIR"
+                rm -rf "$dir"
+                log "Removed $dir"
+
+                # Ask about closing firewall port
+                echo ""
+                if confirm "Close firewall port $port?" "y"; then
+                    ufw delete allow "$port/tcp" 2>/dev/null || true
+                    # Remove from DOCKER-USER chain if exists
+                    iptables -D DOCKER-USER -p tcp --dport "$port" -j ACCEPT 2>/dev/null || true
+                    log "Closed port $port"
+                fi
+
+                log "$name has been completely uninstalled"
                 ;;
             0|"")
                 return
