@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.6.1"
+SCRIPT_VERSION="1.7.1"
 
 # ============================================
 # Colors and Formatting
@@ -491,6 +491,10 @@ run_network() {
 
     header "Network & Firewall Configuration"
 
+    local edit_firewall=true
+    local edit_network=true
+
+    # Show current status and submenu if already configured
     if [ -f "$MARKER_FILE" ]; then
         echo "Current network: $(get_network_status)"
         if [ -f "$CONFIG_DIR/allowed-ips.conf" ]; then
@@ -500,107 +504,127 @@ run_network() {
             done
         fi
         echo ""
-        if ! confirm "This will modify network settings. Continue?"; then
-            return
-        fi
+        echo "What would you like to modify?"
+        echo "  1) Firewall (allowed IPs)"
+        echo "  2) Network (DHCP/Static IP)"
+        echo "  3) Both"
+        echo "  0) Cancel"
+        echo ""
+        read -p "Select option [3]: " edit_choice
+        edit_choice=${edit_choice:-3}
+
+        case $edit_choice in
+            1) edit_firewall=true; edit_network=false ;;
+            2) edit_firewall=false; edit_network=true ;;
+            3) edit_firewall=true; edit_network=true ;;
+            0|"") return ;;
+            *) echo -e "${RED}Invalid option${NC}"; press_enter; return ;;
+        esac
         echo ""
     fi
 
-    # Collect allowed IPs
-    echo -e "${YELLOW}Firewall Configuration${NC}"
-    echo ""
-    echo "Enter the IP addresses or networks that should be allowed to connect."
-    echo "Examples: 192.168.1.0/24, 10.0.0.5, 203.0.113.0/24"
-    echo ""
-
     local allowed_ips=()
-    while true; do
-        read -p "Enter IP or network (or press Enter when done): " ip_input
 
-        if [[ -z "$ip_input" ]]; then
-            if [[ ${#allowed_ips[@]} -eq 0 ]]; then
-                echo -e "${RED}Error: You must enter at least one IP address or network.${NC}"
-                continue
+    # Collect allowed IPs (firewall section)
+    if [ "$edit_firewall" = true ]; then
+        echo -e "${YELLOW}Firewall Configuration${NC}"
+        echo ""
+        echo "Enter the IP addresses or networks that should be allowed to connect."
+        echo "Examples: 192.168.1.0/24, 10.0.0.5, 203.0.113.0/24"
+        echo ""
+
+        while true; do
+            read -p "Enter IP or network (or press Enter when done): " ip_input
+
+            if [[ -z "$ip_input" ]]; then
+                if [[ ${#allowed_ips[@]} -eq 0 ]]; then
+                    echo -e "${RED}Error: You must enter at least one IP address or network.${NC}"
+                    continue
+                fi
+                break
             fi
-            break
-        fi
 
-        if [[ "$ip_input" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$ ]]; then
-            allowed_ips+=("$ip_input")
-            echo -e "${GREEN}Added: $ip_input${NC}"
-        else
-            echo -e "${RED}Invalid format. Use IP (e.g., 10.0.0.1) or CIDR (e.g., 10.0.0.0/24)${NC}"
-        fi
-    done
-
-    # Network mode
-    echo ""
-    echo -e "${YELLOW}Network Configuration${NC}"
-    echo ""
-    echo "  1) DHCP (automatic IP from router)"
-    echo "  2) Static IP (manual configuration)"
-    echo ""
-    read -p "Select network mode [1]: " net_mode
-    net_mode=${net_mode:-1}
+            if [[ "$ip_input" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$ ]]; then
+                allowed_ips+=("$ip_input")
+                echo -e "${GREEN}Added: $ip_input${NC}"
+            else
+                echo -e "${RED}Invalid format. Use IP (e.g., 10.0.0.1) or CIDR (e.g., 10.0.0.0/24)${NC}"
+            fi
+        done
+    fi
 
     local use_static=false
     local net_iface static_ip subnet_cidr gateway dns1 dns2
 
-    if [[ "$net_mode" == "2" ]]; then
-        use_static=true
+    # Network mode section
+    if [ "$edit_network" = true ]; then
         echo ""
+        echo -e "${YELLOW}Network Configuration${NC}"
+        echo ""
+        echo "  1) DHCP (automatic IP from router)"
+        echo "  2) Static IP (manual configuration)"
+        echo ""
+        read -p "Select network mode [1]: " net_mode
+        net_mode=${net_mode:-1}
 
-        local default_iface=$(ip route | grep default | awk '{print $5}' | head -1)
-        read -p "Network interface [$default_iface]: " net_iface
-        net_iface=${net_iface:-$default_iface}
+        if [[ "$net_mode" == "2" ]]; then
+            use_static=true
+            echo ""
 
-        read -p "Static IP address (e.g., 192.168.1.100): " static_ip
-        while [[ ! "$static_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; do
-            echo -e "${RED}Invalid IP format${NC}"
-            read -p "Static IP address: " static_ip
-        done
+            local default_iface=$(ip route | grep default | awk '{print $5}' | head -1)
+            read -p "Network interface [$default_iface]: " net_iface
+            net_iface=${net_iface:-$default_iface}
 
-        read -p "Subnet mask in CIDR (e.g., 24) [24]: " subnet_cidr
-        subnet_cidr=${subnet_cidr:-24}
+            read -p "Static IP address (e.g., 192.168.1.100): " static_ip
+            while [[ ! "$static_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; do
+                echo -e "${RED}Invalid IP format${NC}"
+                read -p "Static IP address: " static_ip
+            done
 
-        read -p "Gateway (e.g., 192.168.1.1): " gateway
-        while [[ ! "$gateway" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; do
-            echo -e "${RED}Invalid IP format${NC}"
-            read -p "Gateway: " gateway
-        done
+            read -p "Subnet mask in CIDR (e.g., 24) [24]: " subnet_cidr
+            subnet_cidr=${subnet_cidr:-24}
 
-        read -p "DNS server 1 [8.8.8.8]: " dns1
-        dns1=${dns1:-8.8.8.8}
+            read -p "Gateway (e.g., 192.168.1.1): " gateway
+            while [[ ! "$gateway" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; do
+                echo -e "${RED}Invalid IP format${NC}"
+                read -p "Gateway: " gateway
+            done
 
-        read -p "DNS server 2 [8.8.4.4]: " dns2
-        dns2=${dns2:-8.8.4.4}
+            read -p "DNS server 1 [8.8.8.8]: " dns1
+            dns1=${dns1:-8.8.8.8}
+
+            read -p "DNS server 2 [8.8.4.4]: " dns2
+            dns2=${dns2:-8.8.4.4}
+        fi
     fi
 
     # Apply firewall rules
-    echo ""
-    log "Configuring firewall..."
+    if [ "$edit_firewall" = true ]; then
+        echo ""
+        log "Configuring firewall..."
 
-    apt-get install -y ufw >/dev/null 2>&1
-    ufw --force reset >/dev/null 2>&1
-    ufw default deny incoming >/dev/null 2>&1
-    ufw default allow outgoing >/dev/null 2>&1
+        apt-get install -y ufw >/dev/null 2>&1
+        ufw --force reset >/dev/null 2>&1
+        ufw default deny incoming >/dev/null 2>&1
+        ufw default allow outgoing >/dev/null 2>&1
 
-    for ip in "${allowed_ips[@]}"; do
-        log "  Allowing SSH from $ip..."
-        ufw allow from $ip to any port 22 proto tcp >/dev/null 2>&1
-    done
+        for ip in "${allowed_ips[@]}"; do
+            log "  Allowing SSH from $ip..."
+            ufw allow from $ip to any port 22 proto tcp >/dev/null 2>&1
+        done
 
-    echo "y" | ufw enable >/dev/null 2>&1
+        echo "y" | ufw enable >/dev/null 2>&1
 
-    # Save allowed IPs
-    mkdir -p "$CONFIG_DIR"
-    echo "# Allowed IPs for firewall rules" > "$CONFIG_DIR/allowed-ips.conf"
-    for ip in "${allowed_ips[@]}"; do
-        echo "$ip" >> "$CONFIG_DIR/allowed-ips.conf"
-    done
+        # Save allowed IPs
+        mkdir -p "$CONFIG_DIR"
+        echo "# Allowed IPs for firewall rules" > "$CONFIG_DIR/allowed-ips.conf"
+        for ip in "${allowed_ips[@]}"; do
+            echo "$ip" >> "$CONFIG_DIR/allowed-ips.conf"
+        done
+    fi
 
     # Apply static IP if selected
-    if [ "$use_static" = true ]; then
+    if [ "$edit_network" = true ] && [ "$use_static" = true ]; then
         log "Configuring static IP..."
 
         cat > /etc/netplan/00-static-config.yaml << EOF
@@ -622,7 +646,16 @@ network:
 EOF
         chmod 600 /etc/netplan/00-static-config.yaml
         log "Static IP configured: $static_ip/$subnet_cidr"
-        log "Note: New IP will take effect after reboot"
+        log "Applying network configuration..."
+        netplan apply 2>/dev/null || warn "Netplan apply failed - may need reboot"
+    elif [ "$edit_network" = true ] && [ "$use_static" = false ]; then
+        # DHCP mode - remove static config if it exists
+        if [ -f /etc/netplan/00-static-config.yaml ]; then
+            log "Removing static IP configuration (switching to DHCP)..."
+            rm -f /etc/netplan/00-static-config.yaml
+            log "Applying network configuration..."
+            netplan apply 2>/dev/null || warn "Netplan apply failed - may need reboot"
+        fi
     fi
 
     log "Network configuration complete"
