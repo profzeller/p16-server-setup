@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.7.4"
+SCRIPT_VERSION="1.7.5"
 
 # ============================================
 # Colors and Formatting
@@ -2206,6 +2206,10 @@ install_service() {
                 if [ -f Dockerfile ] || [ -f */Dockerfile ]; then
                     log "Rebuilding container..."
                     docker compose build --no-cache
+                else
+                    # Pull latest image for image-based services
+                    log "Pulling latest image..."
+                    docker compose pull
                 fi
                 docker compose up -d
                 log "$name updated"
@@ -2221,10 +2225,13 @@ install_service() {
                 cd "$dir"
                 # Copy .env.example if exists
                 [ -f .env.example ] && cp .env.example .env
-                # Build from scratch
+                # Build from scratch or pull latest image
                 if [ -f Dockerfile ] || [ -f */Dockerfile ]; then
                     log "Building container..."
                     docker compose build --no-cache
+                else
+                    log "Pulling latest image..."
+                    docker compose pull
                 fi
                 docker compose up -d
                 log "$name reinstalled"
