@@ -13,7 +13,7 @@
 set -e
 
 # Version - update this with each release
-SCRIPT_VERSION="1.7.1"
+SCRIPT_VERSION="1.7.2"
 
 # ============================================
 # Colors and Formatting
@@ -2388,10 +2388,36 @@ view_container_logs() {
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -gt 0 ] && [ "$choice" -le "${#container_list[@]}" ]; then
         local selected="${container_list[$((choice-1))]}"
         echo ""
-        echo "Showing last 50 lines of $selected (press Ctrl+C to exit):"
+        echo "Log view options:"
+        echo "  1) Last 50 lines (static)"
+        echo "  2) Last 100 lines (static)"
+        echo "  3) Follow logs (Ctrl+C to stop)"
         echo ""
-        docker logs --tail 50 -f "$selected"
+        read -p "Select option [1]: " log_option
+        log_option=${log_option:-1}
+
+        echo ""
+        case $log_option in
+            1)
+                docker logs --tail 50 "$selected" 2>&1 | less +G
+                ;;
+            2)
+                docker logs --tail 100 "$selected" 2>&1 | less +G
+                ;;
+            3)
+                echo "Following logs for $selected (Ctrl+C to stop):"
+                echo ""
+                # Trap SIGINT to return to menu instead of exiting script
+                trap 'echo ""; echo "Stopped following logs."; trap - INT; return 0' INT
+                docker logs --tail 50 -f "$selected" 2>&1
+                trap - INT
+                ;;
+            *)
+                docker logs --tail 50 "$selected" 2>&1 | less +G
+                ;;
+        esac
     fi
+    press_enter
 }
 
 run_system_info() {
