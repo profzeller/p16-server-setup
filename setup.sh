@@ -59,6 +59,8 @@ header() {
 }
 
 press_enter() {
+    # Skip in batch mode (first-run setup)
+    [[ "$BATCH_MODE" == "1" ]] && return
     echo ""
     read -p "Press Enter to continue..."
 }
@@ -2460,15 +2462,22 @@ update_server_setup() {
 run_full_setup() {
     require_root || return
 
+    # Enable batch mode for first run (skips press_enter prompts)
+    local first_run=0
+    if [ ! -f "$MARKER_FILE" ]; then
+        first_run=1
+        export BATCH_MODE=1
+    fi
+
     header "Full P16 GPU Server Setup"
 
     echo "This will run all configuration sections:"
-    echo "  1. System Identity"
-    echo "  2. Network & Firewall"
-    echo "  3. System Updates"
-    echo "  4. SSH Configuration"
-    echo "  5. Lid Close Handling"
-    echo "  6. Display & OLED"
+    echo "  1. Display & Console (run first for 4K screens)"
+    echo "  2. System Identity"
+    echo "  3. Network & Firewall"
+    echo "  4. System Updates"
+    echo "  5. SSH Configuration"
+    echo "  6. Lid Close Handling"
     echo "  7. Suspend Disable"
     echo "  8. NVIDIA Stack"
     echo "  9. Docker"
@@ -2482,17 +2491,21 @@ run_full_setup() {
         fi
     fi
 
+    # Run display first so 4K screens are readable
+    run_display
     run_identity
     run_network
     run_updates
     run_ssh
     run_lid
-    run_display
     run_suspend
     run_nvidia
     run_docker
     run_performance
     run_management_tools
+
+    # Disable batch mode
+    export BATCH_MODE=0
 
     # Create marker file
     mkdir -p "$CONFIG_DIR"
@@ -2585,15 +2598,19 @@ drop_to_shell() {
 # Main Entry Point
 # ============================================
 main() {
-    # Check if first run
+    # Check if first run - auto-elevate to root
     if is_first_run; then
         if [[ $EUID -ne 0 ]]; then
-            echo -e "${RED}First-time setup requires root privileges${NC}"
-            echo "Run with: sudo bash setup.sh"
-            exit 1
+            echo -e "${YELLOW}First-time setup requires root privileges. Elevating...${NC}"
+            exec sudo "$0" "$@"
         fi
         run_full_setup
         exit 0
+    fi
+
+    # For normal operation, also auto-elevate if not root
+    if [[ $EUID -ne 0 ]]; then
+        exec sudo "$0" "$@"
     fi
 
     # Interactive menu loop
