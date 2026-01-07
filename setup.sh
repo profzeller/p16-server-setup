@@ -461,6 +461,22 @@ run_identity() {
     usermod -aG sudo "$new_username"
     unset new_password new_password2
 
+    # Offer to remove old user if a different username was specified
+    if [[ "$new_username" != "$current_user" ]] && [[ "$current_user" != "root" ]]; then
+        echo ""
+        if confirm "Remove old user '$current_user'?"; then
+            # Kill any processes owned by the old user
+            pkill -u "$current_user" 2>/dev/null || true
+            sleep 1
+            # Remove the user and their home directory
+            if userdel -r "$current_user" 2>/dev/null; then
+                log "Removed user '$current_user' and home directory"
+            else
+                warn "Could not fully remove user '$current_user' - you may need to remove manually"
+            fi
+        fi
+    fi
+
     log "System identity configured"
     press_enter
 }
